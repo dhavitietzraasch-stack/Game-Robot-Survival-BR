@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' wss://open.ftorrent.com wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.files.fm stun: turn:;">
+  <!-- connect-src acima é só pro "aperto de mão" inicial (sinalização via
+       trackers públicos de BitTorrent + STUN, usados pelo multiplayer.js/
+       trystero-torrent.min.js). Depois que dois jogadores se conectam, os
+       dados do jogo trafegam direto peer-to-peer via WebRTC, criptografados,
+       sem passar por nenhum desses hosts nem por servidor nosso. -->
   <title>Signal Lost</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23060d18'/><circle cx='16' cy='16' r='10' fill='none' stroke='%2300e5ff' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%2300e5ff'/><line x1='16' y1='2' x2='16' y2='6' stroke='%2300e5ff' stroke-width='2'/><line x1='16' y1='26' x2='16' y2='30' stroke='%2300e5ff' stroke-width='2'/></svg>">
   <link rel="stylesheet" href="style.css">
@@ -19,6 +24,9 @@
      MENU SCREEN
 ══════════════════════════════════════════════════════════════ -->
 <div id="menuScreen">
+  <button id="btnMpOpen" class="menu-mp-btn" title="Multiplayer">🌐<span id="mpBtnDot" class="mp-btn-dot"></span></button>
+  <button id="btnHelp" class="menu-help-btn" title="Ajuda / Tutorial">❓</button>
+  <button id="btnSettings" class="menu-settings-btn" title="Configurações">⚙</button>
   <div class="menu-signal-ring"></div>
   <h1>SIGNAL LOST</h1>
   <p class="menu-sub">Exploração Procedural · Sobrevivência · Resgate</p>
@@ -29,31 +37,15 @@
     <input id="seedInput" type="text" value="signal" maxlength="28" autocomplete="off" spellcheck="false">
   </div>
 
-  <!-- Tamanho do mapa -->
-  <div class="menu-mapsize-row">
-    <span class="mapsize-label">Mapa:</span>
-    <button class="mapsize-btn" data-w="400" data-h="300">🗺 Pequeno</button>
-    <button class="mapsize-btn active" data-w="800" data-h="600">🗺 Médio</button>
-    <button class="mapsize-btn" data-w="1200" data-h="900">🗺 Grande</button>
-    <button class="mapsize-btn" data-w="1600" data-h="1200">🗺 Épico</button>
-  </div>
-
-  <!-- Importar mapa personalizado -->
-  <div class="menu-import-row">
-    <label class="import-label" for="mapImport">📂 Importar Mapa JSON:</label>
-    <input id="mapImport" type="file" accept=".json" style="display:none">
-    <button class="btn btn-sm btn-secondary" onclick="document.getElementById('mapImport').click()">Escolher arquivo</button>
-    <span id="mapImportName" style="font-size:9px;color:rgba(0,229,255,0.6);margin-left:6px;">nenhum</span>
-    <button class="btn btn-sm btn-secondary" id="btnClearImport" style="opacity:0.5;">✕</button>
-    <button class="btn btn-sm btn-secondary" id="btnExportMap" title="Exportar mapa atual como JSON">⬇ Exportar</button>
-  </div>
-
   <!-- Seleção de modo -->
   <div class="menu-mode-row">
     <button class="mode-btn active" data-mode="finite">🎯 Finito</button>
     <button class="mode-btn" data-mode="infinite">∞ Infinito</button>
     <button class="mode-btn" data-mode="creative">🎨 Criativo</button>
   </div>
+
+  <!-- Multiplayer (P2P via WebRTC — sem servidor próprio, ver multiplayer.js) agora
+       tem tela própria, aberta pelo botão 🌐 no canto — ver #mpScreen mais abaixo. -->
 
   <div class="btn-group">
     <button id="btnStart"  class="btn btn-primary">▶ Iniciar</button>
@@ -72,6 +64,179 @@
     <kbd>G</kbd> Scanner — segure sobre tile próximo (≤3 tiles) para catalogar material<br>
     Ao limpar cada onda: escolha 1 de 3 chips de upgrade para UNIDADE-7 — alguns têm limite de compra<br>
     Modo Criativo: biomas não afetam stats · construção ilimitada · sem inimigos
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     CONFIGURAÇÕES (modal sobre a tela de menu)
+══════════════════════════════════════════════════════════════ -->
+<div id="settingsScreen">
+  <div class="settings-panel">
+    <div class="settings-head">
+      <h2>⚙ Configurações</h2>
+      <button id="btnCloseSettings" class="btn btn-sm btn-secondary">✕ Fechar</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">🗺 Mapa</div>
+      <div class="menu-mapsize-row">
+        <span class="mapsize-label">Tamanho:</span>
+        <button class="mapsize-btn" data-w="400" data-h="300">🗺 Pequeno</button>
+        <button class="mapsize-btn active" data-w="800" data-h="600">🗺 Médio</button>
+        <button class="mapsize-btn" data-w="1200" data-h="900">🗺 Grande</button>
+        <button class="mapsize-btn" data-w="1600" data-h="1200">🗺 Épico</button>
+      </div>
+      <div class="menu-import-row">
+        <label class="import-label" for="mapImport">📂 Importar Mapa JSON:</label>
+        <input id="mapImport" type="file" accept=".json" style="display:none">
+        <button class="btn btn-sm btn-secondary" onclick="document.getElementById('mapImport').click()">Escolher arquivo</button>
+        <span id="mapImportName" style="font-size:9px;color:rgba(0,229,255,0.6);margin-left:6px;">nenhum</span>
+        <button class="btn btn-sm btn-secondary" id="btnClearImport" style="opacity:0.5;">✕</button>
+        <button class="btn btn-sm btn-secondary" id="btnExportMap" title="Exportar mapa atual como JSON">⬇ Exportar</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">🌗 Ciclo Dia/Noite</div>
+      <label class="settings-toggle-row">
+        <span>Ativar ciclo dia/noite</span>
+        <input type="checkbox" id="settingDayNightEnabled" checked>
+      </label>
+      <div class="settings-slider-row">
+        <span>☀ Duração do Dia</span>
+        <input type="range" id="settingDayMin" min="1" max="15" step="0.5" value="5">
+        <span id="settingDayMinVal" class="settings-slider-val">5 min</span>
+      </div>
+      <div class="settings-slider-row">
+        <span>🌙 Duração da Noite</span>
+        <input type="range" id="settingNightMin" min="1" max="15" step="0.5" value="3">
+        <span id="settingNightMinVal" class="settings-slider-val">3 min</span>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">🖥 Qualidade Gráfica</div>
+      <div class="menu-quality-row">
+        <button class="quality-btn" data-quality="batata">🥔 Batata</button>
+        <button class="quality-btn" data-quality="muitobaixo">▁ Muito Baixo</button>
+        <button class="quality-btn" data-quality="baixo">▂ Baixo</button>
+        <button class="quality-btn active" data-quality="medio">▄ Médio</button>
+        <button class="quality-btn" data-quality="alto">▆ Alto</button>
+        <button class="quality-btn" data-quality="muitoalto">█ Muito Alto</button>
+      </div>
+      <div class="settings-hint" id="qualityHint">Padrão do jogo: equilíbrio entre desempenho e efeitos visuais.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     MULTIPLAYER (modal próprio, sobre a tela de menu)
+     P2P via WebRTC — ver multiplayer.js. Sem servidor próprio: os
+     navegadores se acham via trackers públicos de BitTorrent e depois
+     falam direto um com o outro. Sala suporta mais de 2 jogadores.
+══════════════════════════════════════════════════════════════ -->
+<div id="mpScreen">
+  <div class="settings-panel mp-panel">
+    <div class="settings-head">
+      <h2>🌐 Multiplayer</h2>
+      <button id="btnCloseMp" class="btn btn-sm btn-secondary">✕ Fechar</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Seu nome na sala</div>
+      <input id="mpNickname" type="text" maxlength="16" class="mp-nickname-input" placeholder="Jogador" autocomplete="off" spellcheck="false">
+    </div>
+
+    <div class="settings-section" id="mpNoRoomSection">
+      <div class="settings-section-title">Entrar em uma sala</div>
+      <div class="mp-row-line">
+        <button id="btnMpCreate" class="btn btn-sm btn-secondary">➕ Criar Sala</button>
+      </div>
+      <div class="mp-row-line">
+        <input id="mpJoinCode" type="text" maxlength="6" placeholder="CÓDIGO" autocomplete="off" spellcheck="false">
+        <button id="btnMpJoin" class="btn btn-sm btn-secondary">Entrar</button>
+      </div>
+    </div>
+
+    <div class="settings-section hidden" id="mpInRoomSection">
+      <div class="settings-section-title">Sala Ativa</div>
+      <div class="mp-code-display">
+        <span id="mpCodeText">------</span>
+        <button id="btnMpCopyCode" class="btn btn-sm btn-secondary" title="Copiar código">📋 Copiar</button>
+      </div>
+      <label class="settings-toggle-row">
+        <span>Sincronizar seed/modo/mapa automaticamente com o host</span>
+        <input type="checkbox" id="mpSyncWorld" checked>
+      </label>
+      <button id="btnMpLeave" class="btn btn-sm btn-danger">🚪 Sair da Sala</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Jogadores na Sala</div>
+      <div id="mpModalPeerList" class="mp-modal-peer-list">
+        <div class="mp-empty-hint">Ninguém conectado ainda.</div>
+      </div>
+    </div>
+
+    <div id="mpStatus" class="mp-status"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     AJUDA / TUTORIAL (modal próprio, sobre a tela de menu)
+══════════════════════════════════════════════════════════════ -->
+<div id="helpScreen">
+  <div class="settings-panel help-panel">
+    <div class="settings-head">
+      <h2>❓ Ajuda / Tutorial</h2>
+      <button id="btnCloseHelp" class="btn btn-sm btn-secondary">✕ Fechar</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">🎯 Objetivo</div>
+      <p class="help-text">UNIDADE-7 acordou sem lembranças em um mundo desconhecido e hostil. Espalhadas pelo mapa há <b>5 antenas</b> desativadas — ative todas para preencher a barra de SINAL a 100% e chamar uma nave de resgate. Quando ela pousar, corra até ela para ser resgatado.</p>
+      <p class="help-text">🎯 <b>Finito</b>: ao ser resgatado, a partida termina em vitória.&ensp;∞ <b>Infinito</b>: o resgate reinicia o ciclo de antenas e o jogo continua sem fim.&ensp;🎨 <b>Criativo</b>: sem inimigos e sem antenas — só construção livre, biomas não afetam status.</p>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">📊 Status (HUD)</div>
+      <p class="help-text">
+        <b>VIDA</b> — chega a zero e UNIDADE-7 é destruída, encerrando a partida (exceto no Criativo).<br>
+        <b>ENERGIA</b> — gasta ao atirar, construir e teleportar; sem energia, essas ações ficam bloqueadas até recarregar.<br>
+        <b>CALOR</b> — sobe ao atirar e ao minerar blocos reforçados, e cai sozinho com o tempo; muito alto, dispara um aviso visual pulsante nas bordas da tela.<br>
+        <b>SINAL</b> — percentual de antenas já ativadas, até 100% com as 5 ligadas.
+      </p>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">🕹 Controles</div>
+      <div class="menu-hints">
+        <kbd>WASD</kbd> / <kbd>↑↓←→</kbd> Mover &nbsp;|&nbsp;
+        <kbd>Clique Esq</kbd> Disparar / Ação &nbsp;|&nbsp;
+        <kbd>1-7</kbd> Armas<br>
+        <kbd>Q</kbd> Laser &nbsp;<kbd>E</kbd> Construir &nbsp;<kbd>R</kbd> Destruir &nbsp;<kbd>B</kbd> Ciclar Bloco &nbsp;<kbd>U</kbd> Upgrades<br>
+        <kbd>F</kbd> Teleporte ao cursor (gasta toda energia · 4s cooldown)<br>
+        <kbd>V</kbd> Navegação A.R.I.A — rota holográfica até antena<br>
+        <kbd>P</kbd> Pausar/Retomar — também pausa sozinho ao abrir Evolução<br>
+        <kbd>Scroll</kbd> Ciclar arma desbloqueada<br>
+        <kbd>G</kbd> Scanner — segure sobre tile próximo (≤3 tiles) para catalogar material
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">🌊 Ondas &amp; Upgrades</div>
+      <p class="help-text">Ao limpar cada onda de inimigos, escolha 1 de 3 chips de upgrade para UNIDADE-7 — alguns têm limite de compra. A tecla <kbd>U</kbd> abre a árvore de evolução para gastar os pontos acumulados.</p>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">🌗 Dia/Noite &nbsp;·&nbsp; 🌐 Multiplayer</div>
+      <p class="help-text">O mundo alterna entre dia e noite, com duração ajustável em ⚙ Configurações. O botão 🌐 abre o multiplayer P2P via WebRTC: crie uma sala e compartilhe o código com outra pessoa, ou entre com um código recebido — a conexão é direta entre os jogadores, sem servidor próprio.</p>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">⚙ Configurações</div>
+      <p class="help-text">Em ⚙ Configurações dá pra ajustar o tamanho do mapa (ou importar/exportar um mapa em JSON), a duração do dia e da noite, e o nível de <b>qualidade gráfica</b> — de 🥔 Batata (foco total em desempenho) até 🆙 Alto/Muito Alto (liga uma vinheta extra de status nas bordas da tela).</p>
+    </div>
   </div>
 </div>
 
@@ -112,6 +277,13 @@
       </div>
     </div>
 
+    <!-- Painel dos jogadores da sala (multiplayer competitivo) — só aparece
+         com alguém conectado; suporta qualquer número de jogadores, não só 1 -->
+    <div id="mpPeersPanel" class="mp-opponent">
+      <div class="mp-opponent-head">🌐 SALA</div>
+      <div id="mpPeersList"></div>
+    </div>
+
     <!-- top-right: tools + system actions + menu btn -->
     <div class="hud-actions">
       <div class="hud-panel" style="display:flex;gap:4px;flex-direction:column;">
@@ -145,7 +317,7 @@
   <div id="biomeTag"></div>
 
   <!-- Day/night indicator (top center, subtle) -->
-  <div id="dayNightHUD" style="position:absolute;top:62px;left:50%;transform:translateX(-50%);font-family:var(--font-mono);font-size:9px;color:rgba(200,220,255,0.45);pointer-events:none;letter-spacing:.1em;"></div>
+  <div id="dayNightHUD"></div>
 
   <!-- alert flash (bottom-left, handled by CSS) -->
   <div id="hudAlert" class="hud-alert"></div>
@@ -173,11 +345,15 @@
      GAME SCRIPT
 ══════════════════════════════════════════════════════════════ -->
 <script src="biomes.js"></script>
+<script src="daynight.js"></script>
+<script src="quality.js"></script>
 <script src="ai-enemy.js"></script>
 <script src="ai-survival.js"></script>
 <script src="game.js"></script>
 <script src="roguelike.js"></script>
 <script src="world-gen.js"></script>
 <script src="scanner.js"></script>
+<script src="trystero-torrent.min.js"></script>
+<script src="multiplayer.js"></script>
 </body>
 </html>

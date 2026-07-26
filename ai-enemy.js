@@ -320,13 +320,15 @@ function hasLineOfSight(x1, y1, x2, y2){
   return true;
 }
 
+function enemyShootRange(e){ return e.elite?450:380; }
+
 function updateEnemyShooting(e,d,dx,dy){
   const can=e.type==='SCOUT'||e.type==='FLYER'||e.type==='TURRET'||
             e.type==='SPECTER'||e.type==='BOMBER'||e.type==='ELITE'||
             e.type==='NECRO'||e.boss;
   if(!can) return;
   e.shootCooldown--;
-  const range=e.elite?450:380;
+  const range=enemyShootRange(e);
   if(e.shootCooldown>0||d>=range) return;
   // Verificar linha de visão (phasing/void_shade ignoram paredes)
   const isPhasing=(e.type==='SPECTER'||e.flying);
@@ -339,6 +341,23 @@ function updateEnemyShooting(e,d,dx,dy){
     default:
       spawnProjectile(e.x,e.y,robot.x,robot.y,'enemy',true);
       e.shootCooldown=e.type==='TURRET'?48:e.type==='SPECTER'?60:80;
+  }
+}
+
+// ─── Reação dos inimigos ao teleporte do jogador ──────────────
+// Se o teleporte deixa o jogador a menos da metade do alcance de tiro de um
+// inimigo, esse inimigo fica "perdido": continua se movendo normalmente
+// (updateEnemyMovement não é afetado), mas leva 1s pra conseguir disparar de
+// novo — sem nenhum efeito visual (sem flash, sem partícula, sem alerta).
+// É só um atraso silencioso injetado no cooldown de disparo de cada um.
+const AI_ENEMY_LOST_SHOOT_DELAY = 60; // 1s a 60fps
+
+function aiEnemyOnPlayerTeleport(){
+  for(const e of enemies){
+    if(e.dead) continue;
+    const range=enemyShootRange(e);
+    const d=Math.hypot(robot.x-e.x,robot.y-e.y);
+    if(d<range/2) e.shootCooldown=Math.max(e.shootCooldown||0,AI_ENEMY_LOST_SHOOT_DELAY);
   }
 }
 
@@ -394,7 +413,7 @@ function updateEnemiesAI(){
     // Chefe: dispara seu padrão de ataque especial periodicamente
     if(e.boss){
       e._bossSpecialTimer=(e._bossSpecialTimer||0)+1;
-      if(e._bossSpecialTimer>=(e.bossSpecialCD||300)){
+      if(e._bossSpecialTimer>=(e.bossSpecialCD||190)){
         e._bossSpecialTimer=0;
         bossSpecialAttack(e);
       }

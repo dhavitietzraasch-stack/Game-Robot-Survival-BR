@@ -7,10 +7,6 @@
 let WORLD_W = 800;
 let WORLD_H = 600;
 
-// Controles da animação de scan sincronizada com o refresh
-let minimapScanY = -1; // -1 = parado (aguardando atualização)
-let minimapScanSpeed = 0; // velocidade calculada dinamicamente
-
 // ─── Constants ───────────────────────────────────────────────
 const TILE        = 32;
 const LASER_RANGE = 520;
@@ -668,10 +664,11 @@ function exportCurrentMap(){
 // ─── Particle System ─────────────────────────────────────────
 const particles = [];
 function spawnParticle(x,y,vx,vy,life,col,size=3,glow=false){
-  if(particles.length>900) particles.splice(0,1); // remover a mais antiga
+  if(particles.length>QUALITY.particleCap) particles.splice(0,1); // remover a mais antiga
   particles.push({x,y,vx,vy,life,max:life,col,size,glow});
 }
 function spawnBurst(x,y,col,n=8,speed=2){
+  n=Math.max(1,Math.round(n*QUALITY.particleScale)); // reduz partículas por explosão conforme a qualidade gráfica
   for(let i=0;i<n;i++){
     const a=Math.random()*Math.PI*2;
     const s=speed*(0.5+Math.random());
@@ -1224,7 +1221,7 @@ window.addEventListener('keydown',e=>{
   if(e.key==='e') setTool('build');
   if(e.key==='r') setTool('destroy');
   if(e.key==='b') cycleBuildType();
-  if(e.key==='f'||e.key==='F') tryTeleport();
+  if(e.key==='f'||e.key==='t') tryTeleport();
   if(e.key==='v'||e.key==='V') { if(typeof toggleARIANav==='function') toggleARIANav(); }
 });
 window.addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
@@ -1356,9 +1353,20 @@ function updateHUD(){
     barHeat.style.background=ht>80?'linear-gradient(90deg,#ef4444,#dc2626)':
       ht>50?'linear-gradient(90deg,#fb923c,#ef4444)':'linear-gradient(90deg,#fbbf24,#fb923c)';
   }
-  // Indicador dia/noite: removido — sempre limpo
+  // Indicador dia/noite
   const dayHUD=document.getElementById('dayNightHUD');
-  if(dayHUD) dayHUD.textContent='';
+  if(dayHUD){
+    if(typeof DAYNIGHT!=='undefined' && DAYNIGHT.enabled){
+      const icon = DAYNIGHT.isDay ? '☀' : '🌙';
+      const secs = Math.max(0,Math.ceil(DAYNIGHT.timeLeftMs/1000));
+      const mm=Math.floor(secs/60), ss=String(secs%60).padStart(2,'0');
+      dayHUD.textContent = `${icon} ${DAYNIGHT.phaseLabel} · ${mm}:${ss}`;
+      dayHUD.classList.toggle('night', !DAYNIGHT.isDay);
+    } else {
+      dayHUD.textContent='';
+      dayHUD.classList.remove('night');
+    }
+  }
   if(biomeTimer>0){biomeTimer--;}else{if(biomeTag)biomeTag.classList.remove('show');}
   if(alertTimer>0){alertTimer--;}else{if(hudAlert)hudAlert.classList.remove('show');}
   if(typeof btnPause!=='undefined' && btnPause){
@@ -1914,7 +1922,7 @@ function drawRescueShip(){
   ctx.scale(scale, scale);
 
   // Glow
-  ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 24+pulse*12;
+  ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = Q(24+pulse*12);
 
   if(spriteReady(SPRITES.ship)){
     const dh=46, dw=dh*(SPRITES.ship.naturalWidth/SPRITES.ship.naturalHeight);
@@ -1939,7 +1947,7 @@ function drawRescueShip(){
 
   // Motor / thruster (glow extra sobre o sprite)
   if(rs.phase!=='landed'){
-    ctx.shadowColor='#f97316'; ctx.shadowBlur=20+pulse*15;
+    ctx.shadowColor='#f97316'; ctx.shadowBlur=Q(20+pulse*15);
     ctx.fillStyle=`rgba(249,115,22,${0.6+pulse*0.4})`;
     ctx.beginPath(); ctx.ellipse(0,22,5,8+pulse*4,0,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=`rgba(255,220,100,${0.4+pulse*0.3})`;
@@ -1954,7 +1962,7 @@ function drawRescueShip(){
     const al = Math.min(1,(rs.landedTimer-30)/30);
     ctx.save();
     ctx.globalAlpha=al;
-    ctx.shadowColor='#00e5ff'; ctx.shadowBlur=8;
+    ctx.shadowColor='#00e5ff'; ctx.shadowBlur=Q(8);
     ctx.fillStyle='#00e5ff'; ctx.font="bold 10px 'Orbitron',sans-serif"; ctx.textAlign='center';
     ctx.fillText('⬆ EMBARCAR',sx,sy-32);
     ctx.font="8px 'Share Tech Mono',monospace"; ctx.fillStyle='rgba(150,240,255,0.8)';
@@ -2003,7 +2011,7 @@ function drawRescueCountdownHUD(){
 
   // Texto
   ctx.fillStyle='#00e5ff'; ctx.font="bold 11px 'Orbitron',sans-serif"; ctx.textAlign='center';
-  ctx.shadowColor='#00e5ff'; ctx.shadowBlur=6;
+  ctx.shadowColor='#00e5ff'; ctx.shadowBlur=Q(6);
   ctx.fillText(`🚀 NAVE DE RESGATE`,bx+bw/2,by+14);
   ctx.shadowBlur=0;
   ctx.fillStyle=secs<30?'#ef4444':secs<60?'#fb923c':'rgba(200,240,255,0.9)';
@@ -2184,7 +2192,7 @@ function drawBossWarning(){
 
   // Título
   ctx.textAlign='center';
-  ctx.shadowColor='rgba(239,68,68,0.8)'; ctx.shadowBlur=14+pulse*10;
+  ctx.shadowColor='rgba(239,68,68,0.8)'; ctx.shadowBlur=Q(14+pulse*10);
   ctx.fillStyle='#ff3b3b';
   ctx.font=`bold ${16+Math.round(pulse*2)}px 'Orbitron',sans-serif`;
   ctx.fillText(`☠ CHEFE SE APROXIMA — ONDA ${bossWarningWave} ☠`, W/2, bannerY+6);
@@ -2202,7 +2210,7 @@ function drawBossHUD(){
 
   ctx.save();
   ctx.textAlign='center';
-  ctx.shadowColor='rgba(239,68,68,0.6)'; ctx.shadowBlur=8;
+  ctx.shadowColor='rgba(239,68,68,0.6)'; ctx.shadowBlur=Q(8);
   ctx.fillStyle='#ff3b3b'; ctx.font=`bold 12px 'Orbitron',sans-serif`;
   ctx.fillText(`☠ ${e.bossName||'CHEFE'}`, W/2, by-4);
   ctx.shadowBlur=0;
@@ -2384,6 +2392,10 @@ function tryTeleport(){
   robot.x=destX; robot.y=destY;
   robot.vx=0; robot.vy=0;
   cam.x=robot.x; cam.y=robot.y;
+
+  // Inimigos muito próximos do destino ficam "perdidos" por 1s antes de
+  // voltar a atirar (sem efeito visual — ver ai-enemy.js)
+  if(typeof aiEnemyOnPlayerTeleport==='function') aiEnemyOnPlayerTeleport();
 
   // Efeito no destino
   spawnBurst(robot.x,robot.y,'#38bdf8',20,5);
@@ -2837,10 +2849,9 @@ function updateWaves(){
     if(autoWaveTimer>=AUTO_WAVE_MAX && gameMode!==GAME_MODES.CREATIVE){
       // Tempo esgotado: força a próxima onda mesmo com inimigos vivos
       autoWaveTimer=0;
-      showAlert('⚠ PRESSÃO MÁXIMA — Próxima onda forçada!');
       spawnBurst(robot.x, robot.y, '#ef4444', 12, 3);
       // Mata todos os inimigos restantes (onda limpa por exaustão de tempo)
-      for(const e of enemies){ e.dead=true; }
+      // for(const e of enemies){ e.dead=true; }
       waveTimer=0; // dispara startWave no próximo frame
     }
   } else {
@@ -2948,10 +2959,6 @@ function buildMinimap(){
 
 function drawMinimap(){
   if(!mctx) return;
-// ── 1. INÍCIO DA FUNÇÃO: Detecta a atualização e dispara o scan ──
-  if (minimapDirty || minimapUpdateTimer <= 0) {
-    minimapScanY = 0; // Volta a linha para o topo (Y = 0) toda vez que o mapa atualiza
-  }
   // Só redesenha a cada 5s — no restante dos frames o canvas mantém a
   // última imagem (o navegador não limpa canvases sozinho entre draws).
   minimapUpdateTimer--;
@@ -2998,34 +3005,6 @@ function drawMinimap(){
       const rcx=rescueShip.x/TILE/WORLD_W*mw, rcy=rescueShip.y/TILE/WORLD_H*mh;
       mctx.strokeStyle='rgba(0,229,255,0.6)'; mctx.lineWidth=1;
       mctx.beginPath(); mctx.moveTo(rcx,rcy); mctx.lineTo(rsx,rsy); mctx.stroke();
-    }
-  }
-// ── 2. FIM DA FUNÇÃO: Desenha a linha de varredura por cima de tudo ──
-  if (minimapScanY >= 0) {
-    // Velocidade para completar a descida em aprox. 1.2 segundos (70 frames)
-    minimapScanSpeed = mh / 70;
-
-    // Gradiente de rastro/brilho
-    const scanGrad = mctx.createLinearGradient(0, minimapScanY - 12, 0, minimapScanY);
-    scanGrad.addColorStop(0, 'rgba(0, 229, 255, 0)');
-    scanGrad.addColorStop(1, 'rgba(0, 229, 255, 0.45)');
-
-    mctx.fillStyle = scanGrad;
-    mctx.fillRect(0, minimapScanY - 12, mw, 12);
-
-    // Linha Cyan principal com brilho
-    mctx.fillStyle = '#00e5ff';
-    mctx.shadowColor = '#00e5ff';
-    mctx.shadowBlur = 6;
-    mctx.fillRect(0, minimapScanY, mw, 2);
-    mctx.shadowBlur = 0; // Limpa o efeito de sombra/brilho
-
-    // Avança a posição Y da linha para o próximo frame
-    minimapScanY += minimapScanSpeed;
-
-    // Quando chega ao fundo do minimapa, desativa e aguarda o próximo update
-    if (minimapScanY > mh) {
-      minimapScanY = -1;
     }
   }
 }
@@ -3264,7 +3243,7 @@ function drawWorld(){
       const sy=Math.round(ty*ts-cam.y+H/2);
       ctx.fillStyle=getTileColor(t,tx,ty,time);
       ctx.fillRect(sx,sy,ts,ts);
-      drawTileDetail(ctx,t,sx,sy,tx,ty);
+      if(QUALITY.tileDetail) drawTileDetail(ctx,t,sx,sy,tx,ty);
     }
   }
 
@@ -3309,7 +3288,7 @@ function drawLasers(){
                currentWeapon==='GRENADE'?'#fbbf24':
                currentWeapon==='RAILGUN'?'#00ffff':
                currentWeapon==='CHAIN'?'#a78bfa':'rgba(255,100,80,0.6)';
-      ctx.shadowColor=lc;ctx.shadowBlur=12;
+      ctx.shadowColor=lc;ctx.shadowBlur=Q(12);
       ctx.strokeStyle=lc;ctx.lineWidth=currentWeapon==='PLASMA'?3:2;
       ctx.setLineDash(currentWeapon==='GRENADE'?[6,4]:[]);
       ctx.beginPath();
@@ -3324,7 +3303,7 @@ function drawLasers(){
     const sx=p.x-cam.x+W/2,sy=p.y-cam.y+H/2;
     ctx.save();
     let col=p.col||(p.isEnemy?'#fca5a5':'#7dd3fc');
-    ctx.shadowColor=col;ctx.shadowBlur=p.type==='plasma'?18:p.type==='railgun'?24:10;
+    ctx.shadowColor=col;ctx.shadowBlur=Q(p.type==='plasma'?18:p.type==='railgun'?24:10);
     ctx.strokeStyle=col;ctx.lineWidth=p.type==='rocket'?4:p.type==='plasma'?4:p.type==='railgun'?3:2.5;
     ctx.beginPath();
     if(p.trail.length>1){
@@ -3349,7 +3328,7 @@ function drawParticles(){
       // Orbs XP: pulsam, não somem (alpha fixo + pulso por xpAge)
       const pulse=0.7+0.3*Math.sin((p.xpAge||0)*0.18);
       ctx.globalAlpha=pulse;
-      ctx.shadowColor='#facc15';ctx.shadowBlur=10;
+      ctx.shadowColor='#facc15';ctx.shadowBlur=Q(10);
       ctx.fillStyle='#facc15';
       ctx.beginPath();ctx.arc(sx,sy,p.size*pulse,0,Math.PI*2);ctx.fill();
       // Brilho interno branco
@@ -3379,7 +3358,7 @@ function drawEnemies(){
 
     // Elite glow
     if(e.elite){
-      ctx.shadowColor=col;ctx.shadowBlur=20;
+      ctx.shadowColor=col;ctx.shadowBlur=Q(20);
     }
 
     ctx.globalAlpha=0.2;ctx.fillStyle='#000';
@@ -3432,7 +3411,7 @@ function drawEnemies(){
       ctx.beginPath();ctx.moveTo(0,-e.size*1.2);ctx.lineTo(e.size,0);
       ctx.lineTo(0,e.size*1.2);ctx.lineTo(-e.size,0);
       ctx.closePath();ctx.fill();
-      ctx.shadowColor=col;ctx.shadowBlur=16;
+      ctx.shadowColor=col;ctx.shadowBlur=Q(16);
       ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.stroke();
       ctx.shadowBlur=0;ctx.globalAlpha=1;
     } else if(e.type==='BOMBER'){
@@ -3510,7 +3489,7 @@ function drawAntennas(){
     }
 
     ctx.shadowColor = ant.active ? '#22c55e' : '#facc15';
-    ctx.shadowBlur = 14+pulse*10;
+    ctx.shadowBlur = Q(14+pulse*10);
 
     if(spriteReady(SPRITES.antenna)){
       const d = 56;
@@ -3571,7 +3550,7 @@ function drawRobot(){
 
   ctx.rotate(robot.angle);
   if(spriteReady(SPRITES.player)){
-    ctx.shadowColor='#5ee9ff'; ctx.shadowBlur=10;
+    ctx.shadowColor='#5ee9ff'; ctx.shadowBlur=Q(10);
     const d=robot.radius*2.25; // sprite ligeiramente maior que o raio de colisão
     ctx.drawImage(SPRITES.player,-d/2,-d/2,d,d);
     ctx.shadowBlur=0;
@@ -3722,7 +3701,7 @@ function drawEnemyArrows(){
     // Seta colorida
     ctx.globalAlpha=isElite?0.95:0.82;
     ctx.fillStyle=arrowCol;
-    if(isElite){ctx.shadowColor=arrowCol;ctx.shadowBlur=10;}
+    if(isElite){ctx.shadowColor=arrowCol;ctx.shadowBlur=Q(10);}
     ctx.beginPath();
     ctx.moveTo(arrowLen,0);
     ctx.lineTo(-arrowLen/2,arrowW);
@@ -3790,6 +3769,7 @@ function draw(){
   drawRobot();
   drawParticles();
   drawEnemyArrows();
+  if(typeof drawDayNight==='function') drawDayNight();
   updateHUD();
   drawMinimap();
   drawWeaponHUD();
@@ -3815,7 +3795,9 @@ function draw(){
   };
 
   // Cada stat sobrepõe sua própria cor nas bordas. Múltiplas podem se acumular.
-  if(gameMode !== GAME_MODES.CREATIVE){
+  // Ligado só em qualidade Alto/Muito Alto (QUALITY.screenEdgeFX) — em Médio
+  // e abaixo o jogo se comporta exatamente como antes (bloco ficava desativado).
+  if(QUALITY.screenEdgeFX && gameMode !== GAME_MODES.CREATIVE){
     const hpPct    = robot.hp    / robot.maxHp;
     const enPct    = robot.energy / robot.maxEnergy;
     const heatPct  = robot.heat  / robot.maxHeat;
@@ -3903,7 +3885,7 @@ function drawPauseOverlay(){
   ctx.textAlign='center';
   ctx.fillStyle='rgba(0,230,255,0.9)';
   ctx.font=`bold 22px 'Share Tech Mono',monospace`;
-  ctx.shadowColor='rgba(0,230,255,0.6)'; ctx.shadowBlur=14;
+  ctx.shadowColor='rgba(0,230,255,0.6)'; ctx.shadowBlur=Q(14);
   ctx.fillText('⏸ PAUSADO', W/2, H/2-10);
   ctx.shadowBlur=0;
   ctx.font=`10px 'Share Tech Mono',monospace`;
@@ -3918,6 +3900,7 @@ function drawPauseOverlay(){
 // ─── Main Update ─────────────────────────────────────────────
 function update(dt){
   time+=dt;
+  if(typeof updateDayNight==='function') updateDayNight(dt);
 
   flowTimer--;
   if(flowTimer<=0){
@@ -3943,6 +3926,7 @@ function update(dt){
   updateParticles();
   if(typeof updateARIA==='function') updateARIA();
   if(typeof updateRogue==='function') updateRogue();
+  if(typeof mpUpdate==='function') mpUpdate();
   updateRescueCountdown();
 }
 
@@ -4000,6 +3984,7 @@ function startGame(seed, mode){
   rebuildFlowField(startTX,startTY);
   if(typeof resetARIA==='function') resetARIA();
   if(typeof resetScanner==='function') resetScanner();
+  if(typeof resetDayNight==='function') resetDayNight();
   menuScreen.classList.add('hidden');
   hud.classList.remove('hidden');
   if(endScreen) endScreen.classList.remove('show');
@@ -4011,6 +3996,7 @@ function startGame(seed, mode){
 }
 
 function endGame(win){
+  if(typeof mpNotifyGameEnd==='function') mpNotifyGameEnd(win);
   // Modo infinito: vitória não termina o jogo
   if(win && gameMode===GAME_MODES.INFINITE){
     showAlert('📡 RESGATADO! O JOGO CONTINUA...');
@@ -4113,14 +4099,28 @@ if(btnExportMapHud) btnExportMapHud.onclick=()=>{ if(running && typeof exportCur
 
 if(btnStart)   btnStart.onclick  = ()=>{
   WORLD_W=_selectedMapW; WORLD_H=_selectedMapH;
-  startGame(seedInput.value.trim()||'signal', _selectedMode);
+  startGame(seedInput.value.trim()||'103b08f87d2afb72', _selectedMode);
 };
 if(btnRandom)  btnRandom.onclick = ()=>{
-  const r=Math.random().toString(36).slice(2,8);
-  seedInput.value=r;
+  // Gera uma string hexadecimal de qualquer tamanho (ex: 16 caracteres)
+const r = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+  .map(b => b.toString(16).padStart(2, '0'))
+  .join('');
   WORLD_W=_selectedMapW; WORLD_H=_selectedMapH;
   startGame(r,_selectedMode);
 };
+const btnSettings      = document.getElementById('btnSettings');
+const btnCloseSettings = document.getElementById('btnCloseSettings');
+const settingsScreen   = document.getElementById('settingsScreen');
+if(btnSettings)      btnSettings.onclick      = ()=>{ if(settingsScreen) settingsScreen.classList.add('show'); };
+if(btnCloseSettings) btnCloseSettings.onclick = ()=>{ if(settingsScreen) settingsScreen.classList.remove('show'); };
+
+const btnHelp      = document.getElementById('btnHelp');
+const btnCloseHelp = document.getElementById('btnCloseHelp');
+const helpScreen   = document.getElementById('helpScreen');
+if(btnHelp)      btnHelp.onclick      = ()=>{ if(helpScreen) helpScreen.classList.add('show'); };
+if(btnCloseHelp) btnCloseHelp.onclick = ()=>{ if(helpScreen) helpScreen.classList.remove('show'); };
+
 if(btnMenu)    btnMenu.onclick   = ()=>{running=false;menuScreen.classList.remove('hidden');hud.classList.add('hidden');if(endScreen)endScreen.classList.remove('show');};
 if(btnMenuEnd) btnMenuEnd.onclick= ()=>{running=false;menuScreen.classList.remove('hidden');hud.classList.add('hidden');if(endScreen)endScreen.classList.remove('show');};
 if(btnRestart) btnRestart.onclick= ()=>{if(endScreen)endScreen.classList.remove('show');startGame(seedStr,gameMode);};

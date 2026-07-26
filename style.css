@@ -6,6 +6,7 @@
 
 /* ─── Reset & Base ─────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+.hidden { display: none; }
 
 :root {
   --bg:       #060d18;
@@ -565,23 +566,20 @@ body.creative-mode .hud-panel { border-color: rgba(74,222,128,.35); }
 }
 
 /* ─── Indicador Dia/Noite ────────────────────────────────── */
-#dayNightIndicator {
+#dayNightHUD {
   position: absolute;
-  top: 10px;
+  top: 62px;
   left: 50%;
   transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 6px;
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: .1em;
-  color: var(--muted);
+  color: rgba(200,220,255,0.45);
   pointer-events: none;
-  z-index: 25;
+  transition: color .6s;
 }
+#dayNightHUD.night { color: rgba(167,139,250,.7); }
 
-/* Transição suave de escuridão pelo canvas (sem elemento overlay) */
 #hud .hud-alert { transition: opacity .3s, transform .3s; }
 
 /* Ajuste da barra de ondas — tirar número, ficar mais discreto */
@@ -630,6 +628,49 @@ body.creative-mode .hud-panel { border-color: rgba(74,222,128,.35); }
   color: var(--cyan);
 }
 
+/* ─── Seletor de Qualidade Gráfica ───────────────────────── */
+.menu-quality-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0,230,255,.05);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.quality-btn {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all .18s;
+}
+.quality-btn:hover { background: rgba(0,230,255,.08); color: var(--text); }
+.quality-btn.active {
+  background: linear-gradient(135deg, rgba(0,229,255,.22), rgba(99,102,241,.22));
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+/* Baixo/Muito Baixo/Batata em cinza (modo desempenho), Alto/Muito Alto em
+   dourado (ligam a vinheta de status extra — ver quality.js) */
+.quality-btn[data-quality="batata"].active,
+.quality-btn[data-quality="muitobaixo"].active { border-color:#94a3b8; color:#94a3b8; background:rgba(148,163,184,.14); }
+.quality-btn[data-quality="alto"].active,
+.quality-btn[data-quality="muitoalto"].active  { border-color:#facc15; color:#facc15; background:rgba(250,204,21,.14); }
+.settings-hint {
+  font-size: 9px;
+  color: rgba(0,229,255,.45);
+  text-align: center;
+  line-height: 1.5;
+}
+
 /* ─── Importar/Exportar Mapa ─────────────────────────────── */
 .menu-import-row {
   display: flex;
@@ -652,5 +693,324 @@ body.creative-mode .hud-panel { border-color: rgba(74,222,128,.35); }
   font-family: var(--font-ui);
   font-size: 9px;
   letter-spacing: .08em;
+  color: var(--cyan);
+}
+
+/* ─── Multiplayer (P2P via WebRTC — ver multiplayer.js) ───────── */
+
+.mp-row-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.mp-row-line input#mpJoinCode {
+  background: rgba(0,0,0,.3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: .15em;
+  text-align: center;
+  text-transform: uppercase;
+  width: 90px;
+  padding: 6px 4px;
+  outline: none;
+}
+.mp-row-line input#mpJoinCode:focus { border-color: var(--purple); }
+.mp-status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  min-height: 14px;
+  text-align: center;
+}
+.mp-status.mp-ok    { color: var(--green); }
+.mp-status.mp-warn  { color: #fbbf24; }
+.mp-status.mp-error { color: var(--red); }
+.mp-status.mp-wait  { color: var(--cyan2); }
+
+.mp-nickname-input {
+  background: rgba(0,0,0,.3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-align: center;
+  width: 100%;
+  max-width: 260px;
+  padding: 8px 10px;
+  outline: none;
+}
+.mp-nickname-input:focus { border-color: var(--purple); }
+
+.mp-code-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  background: rgba(0,0,0,.3);
+  border: 1px solid rgba(167,139,250,.4);
+  border-radius: 8px;
+  padding: 10px 16px;
+}
+#mpCodeText {
+  font-family: var(--font-ui);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: .25em;
+  color: var(--purple);
+}
+
+.mp-modal-peer-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.mp-modal-peer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(167,139,250,.06);
+  border: 1px solid rgba(167,139,250,.25);
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 10px;
+  color: var(--text);
+}
+.mp-modal-peer-row span:first-child { color: #e0f7ff; font-weight: bold; }
+.mp-empty-hint {
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  padding: 10px;
+}
+
+/* Painel de jogadores da sala no HUD (top-center, ao lado da onda/score) —
+   só aparece com `.show` quando há ≥1 peer (ver mpUpdateHudPanel). Suporta
+   qualquer número de jogadores empilhando uma `.mp-peer-row` por peer. */
+.mp-opponent {
+  background: var(--surface);
+  border: 1px solid rgba(167,139,250,.35);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 4px 20px rgba(0,0,0,.5);
+  min-width: 170px;
+  max-width: 220px;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+}
+.mp-opponent.show { display: flex; }
+.mp-opponent-head {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  letter-spacing: .12em;
+  color: var(--purple);
+  text-transform: uppercase;
+}
+.mp-opp-track { height: 6px; flex: none; width: 100%; }
+.mp-peer-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 0;
+  border-top: 1px solid rgba(167,139,250,.15);
+}
+.mp-peer-row:first-child { border-top: none; padding-top: 2px; }
+.mp-peer-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.mp-peer-name {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #e0f7ff;
+  font-weight: bold;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mp-peer-status { font-size: 11px; line-height: 1; }
+.mp-peer-stats {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: #e0f7ff;
+  letter-spacing: .02em;
+}
+
+/* ─── Botão de Multiplayer (canto da tela de menu) ─────────────── */
+.menu-mp-btn {
+  position: absolute;
+  top: 18px;
+  right: 70px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(167,139,250,.4);
+  background: rgba(167,139,250,.06);
+  color: var(--purple);
+  font-size: 15px;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: all .18s;
+  z-index: 2;
+}
+.menu-mp-btn:hover { background: rgba(167,139,250,.16); }
+.mp-btn-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  display: none;
+}
+.mp-btn-dot.show { display: block; }
+
+/* ─── Botão de Ajuda / Tutorial (canto da tela de menu) ───────── */
+.menu-help-btn {
+  position: absolute;
+  top: 18px;
+  right: 118px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(250,204,21,.4);
+  background: rgba(250,204,21,.06);
+  color: var(--yellow);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: all .18s;
+  z-index: 2;
+}
+.menu-help-btn:hover { background: rgba(250,204,21,.16); }
+
+/* ─── Botão de Configurações (canto da tela de menu) ──────────── */
+.menu-settings-btn {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(0,230,255,.06);
+  color: var(--cyan);
+  font-size: 17px;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: all .18s;
+  z-index: 2;
+}
+.menu-settings-btn:hover { background: rgba(0,230,255,.16); transform: rotate(45deg); }
+
+/* ─── Modal de Configurações / Multiplayer / Ajuda ─────────────── */
+#settingsScreen, #mpScreen, #helpScreen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2,5,14,.82);
+  backdrop-filter: blur(10px);
+  z-index: 70;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s;
+}
+#settingsScreen.show, #mpScreen.show, #helpScreen.show { opacity: 1; pointer-events: auto; }
+
+.settings-panel {
+  width: min(560px, 92vw);
+  max-height: 84vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px 26px 28px;
+  box-shadow: 0 10px 50px rgba(0,0,0,.6);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+.settings-head h2 {
+  font-family: var(--font-ui);
+  font-size: 16px;
+  letter-spacing: .08em;
+  color: var(--cyan);
+}
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.settings-section-title {
+  align-self: flex-start;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  letter-spacing: .1em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.settings-toggle-row,
+.settings-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: rgba(0,230,255,.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 11px;
+  color: var(--text);
+}
+.settings-toggle-row span,
+.settings-slider-row span:first-child { flex: 1; text-align: left; }
+.settings-toggle-row input[type="checkbox"] {
+  width: 16px; height: 16px;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+.settings-slider-row input[type="range"] {
+  flex: 2;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+.settings-slider-val {
+  width: 48px;
+  text-align: right;
+  color: var(--cyan);
+  font-family: var(--font-mono);
+}
+
+/* ─── Modal de Ajuda / Tutorial ─────────────────────────────── */
+.help-panel { width: min(640px, 94vw); }
+.help-text {
+  width: 100%;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text);
+  text-align: left;
+}
+.help-text b { color: var(--cyan); }
+.help-text kbd {
+  background: rgba(0,230,255,.1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
   color: var(--cyan);
 }

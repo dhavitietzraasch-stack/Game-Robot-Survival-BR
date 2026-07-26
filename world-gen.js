@@ -1,5 +1,5 @@
 /* ============================================================
-   SIGNAL LOST — world-gen.js  v3.0
+   SIGNAL LOST — world-gen.js  v3.2
    Sistema de Geração Climática e Ecológica
    Substitui generateSurface() em game.js
 
@@ -17,6 +17,9 @@
    • Anti-repetição com memória regional e penalidade dinâmica
    • Transições graduais entre biomas vizinhos
    • Biomas "não naturais" raros e isolados
+   • v3.2 — menos sólido no total, alterador probabilístico
+     (pântano+água) e sistema de modificadores por tile
+     (temperatura, extensível a novos modificadores depois)
    ============================================================ */
 'use strict';
 
@@ -556,7 +559,20 @@ window.generateSurface = function generateSurface(rand, rng0) {
 
   /* ── 6. Adicionar afloramentos rochosos sobre terreno ──────
      Rochas aparecem em altitude mais alta mas abaixo da neve,
-     ou em regiões áridas. Integradas no terreno, não aleatórias. */
+     ou em regiões áridas. Integradas no terreno, não aleatórias.
+
+     v3.2 — "menos pedras": teto geral subiu de 0.65 para 0.74 (menos
+     sólido no mundo inteiro) e floresta/glacial ganharam uma penalidade
+     extra, porque mesmo sendo biomas "macios" ainda geravam pedra
+     demais. Água e praia já ficavam de fora deste laço inteiro (ver o
+     `continue` logo abaixo) — ou seja, chance zero, sem precisar de
+     ajuste. */
+  const SOLID_PENALTY_BIOMA = {
+    [T.FOREST]: 0.12,
+    [T.ICE]:    0.12, // "Glacial"
+  };
+  const SOLID_THRESHOLD = 0.74; // era 0.65 — quanto maior, menos pedra no total
+
   const rockSrc = new Uint8Array(smoothed);
   for (let ty = 1; ty < H - 1; ty++) {
     for (let tx = 1; tx < W - 1; tx++) {
@@ -573,8 +589,9 @@ window.generateSurface = function generateSurface(rand, rng0) {
       // Mais rochas em altitudes médias-altas e biomas secos
       const rockBonus = Math.max(0, elev * 0.4) +
         (t === T.DESERT || t === T.VOLCANIC_ASH ? 0.08 : 0);
+      const penalty = SOLID_PENALTY_BIOMA[t] || 0;
 
-      if (rockVal + rockBonus > 0.65) {
+      if (rockVal + rockBonus - penalty > SOLID_THRESHOLD) {
         let tile;
         if (rockVal > 0.78)      tile = T.STONE;
         else if (rockVal > 0.74) tile = T.IRON;
@@ -710,7 +727,15 @@ window.generateSurface = function generateSurface(rand, rng0) {
      propósito) — mas cada regra individual não reage ao seu próprio
      resultado no meio da sua própria varredura (usa um snapshot tirado
      bem antes dela começar). Ver applyTerrainReactions() mais abaixo. */
-  applyTerrainReactions(wg, ig);
+  applyTerrainReactions(wg, ig, rand);
+
+  /* ── 12. Sistema de modificadores (novo, extensível) ─────────
+     Roda por último, já com o terreno final (biomas + sólidos +
+     alteradores todos aplicados) — só assim as âncoras de
+     temperatura (bioma Glacial, Vulcânico) estão no lugar certo.
+     Ver applyModifiers() mais abaixo. Funciona só aqui, na geração;
+     nada disso é lido durante o jogo ainda. */
+  applyModifiers(wg);
 
   return [];
 }; // ← ponto-e-vírgula obrigatório: impede que a IIFE abaixo seja
@@ -724,6 +749,11 @@ window.generateSurface = function generateSurface(rand, rng0) {
 //                 tiles AO REDOR dele (raio `ringRadius`, default 1) que
 //                 forem do tipo `ringFrom` viram `result`. O mestre em si
 //                 não muda.
+// `chance` (opcional, 0–1) → em vez de aplicar sempre que a condição bate,
+//                 sorteia por tile-mestre (usando o rand() seedado do
+//                 mundo, então o resultado é reproduzível pelo seed).
+//                 Sem `chance`, a regra continua 100% determinística
+//                 como antes.
 // A ORDEM da lista importa: cada regra enxerga o terreno já modificado
 // pelas regras anteriores (ver applyTerrainReactions). Por isso, p.ex.,
 // "Cinzas do choque térmico" roda ANTES de "Lava esfria em bioma frio"
@@ -742,6 +772,14 @@ const TERRAIN_REACTIONS = [
     master:new Set([T.WATER]), trigger:new Set([T.SNOW,T.ICE]),
     result:T.ICE,
     note:'água encostando em neve/gelo congela nas bordas do lago/rio' },
+
+  { name:'Pântano encostado em água pode virar pedra', mode:'self', chance:0.20,
+    master:new Set([T.SWAMP]), trigger:new Set([T.WATER,T.DEEP_WATER]),
+    result:T.STONE,
+    note:'a parte do pântano que encosta na água tem 20% de chance (por '+
+         'tile, sorteado individualmente) de se mineralizar em pedra — '+
+         'mesmo padrão de "Lava resfriada por água", mas probabilístico '+
+         'em vez de sempre acontecer' },
 
   // ── mode:'ring' ────────────────────────────────────────────
   { name:'Cinzas do choque térmico', mode:'ring', ringRadius:1,
@@ -794,7 +832,7 @@ function _neighborHasType(before, tx, ty, W, H, typeSet){
   return false;
 }
 
-function applyTerrainReactions(wg, ig){
+function applyTerrainReactions(wg, ig, rand){
   const W=WORLD_W, H=WORLD_H;
 
   for(const rule of TERRAIN_REACTIONS){
@@ -815,6 +853,9 @@ function applyTerrainReactions(wg, ig){
         const idx = wi(tx,ty);
         if(!rule.master.has(before[idx])) continue;
         if(!_neighborHasType(before, tx, ty, W, H, rule.trigger)) continue;
+        // Regra com `chance`: sorteia por tile-mestre. Sem `chance`,
+        // comportamento antigo (sempre aplica) continua intacto.
+        if(rule.chance !== undefined && rand() >= rule.chance) continue;
 
         if(rule.mode==='self'){
           wg[idx] = rule.result;
@@ -839,6 +880,93 @@ function applyTerrainReactions(wg, ig){
 }
 
 /* ─────────────────────────────────────────────────────────────
+   SISTEMA DE MODIFICADORES (novo, extensível)
+   Cada modificador é um campo numérico por tile (Float32Array do
+   tamanho do mapa), calculado uma única vez aqui na geração — não
+   roda durante o jogo. Hoje só "temperatura" existe; um modificador
+   novo (umidade, radiação, o que for) entra só adicionando uma
+   entrada em MODIFIER_DEFS, sem tocar no motor de propagação abaixo.
+   ───────────────────────────────────────────────────────────── */
+const MODIFIER_DEFS = {
+  temperatura: {
+    decaimento: 0.5,      // cada vizinho herda metade do valor do anterior
+    magnitudeMinima: 1,   // abaixo disso a propagação para
+    fontes: {              // bioma-âncora → valor inicial extremo
+      [T.ICE]:  -16,       // "Glacial" — bloco frio
+      [T.LAVA]:  16,       // bloco quente (ajuste os valores à vontade)
+    },
+  },
+};
+
+let modifierFields = {}; // modifierFields[dim][nomeDoModificador] = Float32Array
+
+function _vizinhos4(tx, ty){
+  return [[tx+1,ty],[tx-1,ty],[tx,ty+1],[tx,ty-1]];
+}
+
+// BFS multi-origem: todas as fontes entram na fila de uma vez, e a cada
+// salto pro vizinho o valor é multiplicado por `decaimento` — é o
+// "compartilha a metade" pedido (-16 → -8 → -4 → -2 → -1, parando antes
+// de -1 por causa de `magnitudeMinima`). A fonte original nunca é
+// sobrescrita: ela é a primeira coisa gravada na fila, com o valor cheio,
+// antes de qualquer vizinho ser visitado.
+function _propagarModificador(wg, W, H, def){
+  const field = new Float32Array(W * H);
+  const fila = [];
+
+  for(let ty=0; ty<H; ty++){
+    for(let tx=0; tx<W; tx++){
+      const idx = wi(tx,ty);
+      const base = def.fontes[wg[idx]];
+      if(base !== undefined){
+        field[idx] = base;
+        fila.push([tx, ty, base]);
+      }
+    }
+  }
+
+  let cabeca = 0;
+  while(cabeca < fila.length){
+    const [tx,ty,valor] = fila[cabeca++];
+    const proximo = valor * def.decaimento;
+    if(Math.abs(proximo) < def.magnitudeMinima) continue;
+
+    for(const [nx,ny] of _vizinhos4(tx,ty)){
+      if(nx<0||ny<0||nx>=W||ny>=H) continue;
+      const nidx = wi(nx,ny);
+      const atual = field[nidx];
+      // Se duas fontes disputam a mesma célula, vence a mais extrema.
+      // 0 é tratado como "ainda vazio": nenhuma fonte decai até chegar
+      // exatamente em 0 antes de parar em magnitudeMinima, então não há
+      // ambiguidade com uma célula que legitimamente valesse 0.
+      if(atual === 0 || Math.abs(proximo) > Math.abs(atual)){
+        field[nidx] = proximo;
+        fila.push([nx, ny, proximo]);
+      }
+    }
+  }
+
+  return field;
+}
+
+function applyModifiers(wg){
+  const W = WORLD_W, H = WORLD_H;
+  modifierFields[DIM.SURFACE] = {};
+  for(const nome of Object.keys(MODIFIER_DEFS)){
+    modifierFields[DIM.SURFACE][nome] = _propagarModificador(wg, W, H, MODIFIER_DEFS[nome]);
+  }
+}
+
+// Helper público — ainda não usado no resto do jogo, só preparado para
+// quando quiser ligar isso em algo (ver pedido original: "funciona
+// apenas na geração de mundo" por enquanto).
+function getTileModifier(nome, tx, ty){
+  const campos = modifierFields[DIM.SURFACE];
+  if(!campos || !campos[nome]) return 0;
+  return campos[nome][wi(tx, ty)];
+}
+
+/* ─────────────────────────────────────────────────────────────
    PATCH AUTOMÁTICO
    Sobrescreve a geração de superfície quando generateWorld()
    for chamado, sem alterar o game.js original.
@@ -849,7 +977,8 @@ function applyTerrainReactions(wg, ig){
   // a do game.js no escopo global, pois scripts síncronos
   // executam em ordem e a última declaração de função prevalece.
   if (typeof console !== 'undefined') {
-    console.log('[world-gen.js] Sistema climático v3.0 carregado.');
+    console.log('[world-gen.js] Sistema climático v3.2 carregado.');
     console.log('[world-gen.js] Camadas: continente · temperatura · umidade · altitude · erosão · estranheza · corrupção · vulcanismo');
+    console.log('[world-gen.js] v3.2: menos sólido no total, alterador probabilístico (pântano+água) e modificador de temperatura por tile.');
   }
 })();
