@@ -12,16 +12,6 @@ const TILE        = 32;
 const LASER_RANGE = 520;
 const BUILD_RANGE = 160;
 
-// ─── Rescue / Signal System ──────────────────────────────────
-const TOTAL_ANTENNAS   = 5;  // antenas para ativar e ser resgatado
-let   antennasActive   = 0;
-let   signalProgress   = 0;  // 0–100%
-
-// ─── Rescue Ship (spawned after all antennas active) ─────────
-const RESCUE_COUNTDOWN_SECONDS = 180; // 3 minutos
-const RESCUE_SHIP_FRAMES = RESCUE_COUNTDOWN_SECONDS * 60;
-let   rescueCountdown  = -1;   // -1 = não iniciado; 0 = chegou
-let   rescueShip       = null; // { x, y, angle, phase, spawnTimer, arrived }
 let   playerSpawnShip  = null; // { cx, cy, rx, ry } — nave de início do jogador
 
 // Chunk system (dinâmico — atualizado ao mudar tamanho do mapa)
@@ -29,15 +19,15 @@ const CHUNK_SIZE = 16;
 let CHUNKS_X = Math.ceil(WORLD_W / CHUNK_SIZE);
 let CHUNKS_Y = Math.ceil(WORLD_H / CHUNK_SIZE);
 
-// Antena tile ID (estrutura ativável)
-const T_ANTENNA  = 40;
-
 const FLOW_UPDATE_INTERVAL = 45;
 let   flowTimer = 0;
 
 // ─── Modos de Jogo ───────────────────────────────────────────
-const GAME_MODES = { FINITE:'finite', INFINITE:'infinite', CREATIVE:'creative' };
-let gameMode = GAME_MODES.FINITE;
+// SURVIVAL: sobreviver o máximo possível às ondas — a partida só termina
+// com a destruição de UNIDADE-7 (não há mais condição de vitória por resgate).
+// CREATIVE: sem inimigos, construção livre.
+const GAME_MODES = { SURVIVAL:'survival', CREATIVE:'creative' };
+let gameMode = GAME_MODES.SURVIVAL;
 
 // ─── Importação de mapa personalizado ────────────────────────
 let _importedMapData = null; // dados JSON de mapa importado
@@ -125,6 +115,12 @@ const BIOME_INFO = {
     [T.GHOST_GRASS]: {name:'Grama Fantasma',    drag:.985},
   },
 };
+
+// ── Qualidade "batata" = zero animação ────────────────────────
+const IS_POTATO = () => (typeof QUALITY !== 'undefined' && (
+  QUALITY.level === 'batata' || QUALITY.level === 'potato' ||
+  QUALITY.particleScale === 0 || QUALITY.particleCap <= 5
+));
 
 // ─── Mundo (dimensão única — Superfície) ──────────────────────
 const DIM = { SURFACE:0 };
@@ -338,13 +334,10 @@ function createNoise(prng){
 // (a geração real é definida em world-gen.js, que sobrescreve
 //  window.generateSurface — sistema de dimensões extras removido)
 
-// Antenas ativáveis (não há mais portais entre dimensões)
+// Não há portais entre dimensões
 const portalMap = {
   [DIM.SURFACE]: [],
 };
-
-// Antenna positions (structures to activate for rescue)
-let antennaStructures = []; // [{tx, ty, active, label}]
 
 // ─── Macro-Structures ─────────────────────────────────────────
 // Gera estruturas no mapa da superfície: bunkers, fábricas, torres, naves
@@ -474,28 +467,6 @@ function placeStructures(wg, ig, rand){
     return {cx, cy, rx, ry};
   }
 
-  // ── Antena de resgate (estrutura circular especial)
-  function placeAntenna(cx, cy, label){
-    const r = 6;
-    for(let ty=cy-r;ty<=cy+r;ty++){
-      for(let tx=cx-r;tx<=cx+r;tx++){
-        if(!inBounds(tx,ty)) continue;
-        const d = Math.hypot(tx-cx, ty-cy);
-        if(d<=r && d>r-1.5){
-          wg[wi(tx,ty)] = T.RUNE_STONE;
-          ig[wi(tx,ty)] = BLOCK_INTEGRITY[T.RUNE_STONE]||200;
-        } else if(d<r-1.5){
-          wg[wi(tx,ty)] = T.CAVE_FLOOR;
-          ig[wi(tx,ty)] = 0;
-        }
-      }
-    }
-    // Centro: portal especial (visual distinto)
-    wg[wi(cx,cy)] = T.PORTAL;
-    ig[wi(cx,cy)] = 0;
-    return {tx:cx, ty:cy, active:false, label, r};
-  }
-
   // ─ Espalhar N estruturas de cada tipo ─
   const usedCenters = [];
   function clearSpot(cx, cy, minDist=60){
@@ -515,20 +486,6 @@ function placeStructures(wg, ig, rand){
   const spawnShipData = placePlayerSpawnShip(spawnShipCX, spawnShipCY);
   usedCenters.push([spawnShipCX, spawnShipCY]);
   playerSpawnShip = spawnShipData;
-
-  // 5 Antenas espalhadas pelo mapa (objetivo principal)
-  const antennas = [];
-  const antLabels = ['ALFA','BETA','GAMA','DELTA','ÉPSILON'];
-  for(let i=0;i<TOTAL_ANTENNAS;i++){
-    for(let attempt=0;attempt<60;attempt++){
-      const [cx,cy] = randPos(50);
-      if(!clearSpot(cx,cy,120)) continue;
-      const ant = placeAntenna(cx, cy, antLabels[i]);
-      antennas.push(ant);
-      usedCenters.push([cx,cy]);
-      break;
-    }
-  }
 
   // 8–12 Bunkers
   const numBunkers = 8 + Math.floor(rand()*5);
@@ -583,7 +540,7 @@ function placeStructures(wg, ig, rand){
     }
   }
 
-  return antennas;
+  return structures;
 }
 
 function generateWorld(seedStr){
@@ -600,12 +557,7 @@ function generateWorld(seedStr){
   // A geração de superfície é definida em world-gen.js (window.generateSurface)
   portalMap[DIM.SURFACE] = window.generateSurface(rand, rng0);
   playerSpawnShip = null;
-  antennaStructures = placeStructures(worldGrids[DIM.SURFACE], integrities[DIM.SURFACE], rand);
-  if(typeof spawnAntennaSentries==='function') spawnAntennaSentries();
-  antennasActive = 0;
-  signalProgress = 0;
-  rescueCountdown = -1;
-  rescueShip = null;
+  placeStructures(worldGrids[DIM.SURFACE], integrities[DIM.SURFACE], rand);
   for(const d of [DIM.SURFACE]){
     chunkDirtyBuffers[d].fill(1);
     flowFields[d].fill(Infinity);
@@ -626,10 +578,6 @@ function _loadImportedMap(data){
         worldGrids[d].set(arr.slice(0,worldGrids[d].length));
       }
     }
-    antennaStructures=data.antennas||[];
-    if(typeof spawnAntennaSentries==='function') spawnAntennaSentries();
-    antennasActive=0; signalProgress=0;
-    rescueCountdown=-1; rescueShip=null;
     for(const d of [DIM.SURFACE]){
       chunkDirtyBuffers[d].fill(1);
       flowFields[d].fill(Infinity);
@@ -651,7 +599,6 @@ function exportCurrentMap(){
     grids:{
       [DIM.SURFACE]: Array.from(worldGrids[DIM.SURFACE]),
     },
-    antennas: antennaStructures.map(a=>({tx:a.tx,ty:a.ty,active:a.active,label:a.label})),
   };
   const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
@@ -661,9 +608,172 @@ function exportCurrentMap(){
   showAlert('⬇ Mapa exportado!');
 }
 
+// ─── Salvar/Continuar partida (localStorage) ──────────────────
+// Diferente do exportCurrentMap() acima (que só guarda o mapa, pra
+// compartilhar/reaproveitar), isto guarda a PARTIDA inteira — mundo,
+// robô, progresso — pra poder continuar de onde parou. Só roda no
+// navegador de quem está jogando (localStorage), não é upload/download.
+//
+// Não é salvo (de propósito, pra manter simples): inimigos, partículas
+// e projéteis em voo (regeneram sozinhos pela fila de onda ao continuar),
+// e o estado das telas do roguelike/ARIA que só fazem sentido durante o
+// frame atual (cooldown de proc, overclock ativo etc.).
+const SAVE_KEY = 'signalLostSave_v1';
+
+function hasSavedGame(){
+  try{ return !!localStorage.getItem(SAVE_KEY); }
+  catch(err){ return false; }
+}
+
+function clearSavedGame(){
+  try{ localStorage.removeItem(SAVE_KEY); }catch(err){ /* ignora */ }
+  _refreshContinueButton();
+}
+
+function saveGame(){
+  if(!worldGrids[DIM.SURFACE]) return; // nada gerado ainda
+  try{
+    const data = {
+      version:1, savedAt:Date.now(),
+      seed:seedStr, mode:gameMode, worldW:WORLD_W, worldH:WORLD_H,
+      grid: Array.from(worldGrids[DIM.SURFACE]),
+      integrity: Array.from(integrities[DIM.SURFACE]),
+      robot:{
+        x:robot.x, y:robot.y, vx:robot.vx, vy:robot.vy, angle:robot.angle,
+        hp:robot.hp, maxHp:robot.maxHp,
+        energy:robot.energy, maxEnergy:robot.maxEnergy,
+        heat:robot.heat, maxHeat:robot.maxHeat,
+        prevBiome:robot.prevBiome, inCave:robot.inCave,
+      },
+      time, score, wave, waveTimer, waveSpawnLeft, autoWaveTimer,
+      currentWeapon, currentTool, currentBuildType,
+      ownedWeapons: Array.from(ownedWeapons), ownedAbilities: Array.from(ownedAbilities),
+      evolution:{
+        xp:evolution.xp, level:evolution.level, xpToNext:evolution.xpToNext,
+        totalXP:evolution.totalXP, points:evolution.points,
+        unlocked:Array.from(evolution.unlocked),
+        effectCounts:evolution.effectCounts, resets:evolution.resets,
+      },
+      rogue: (typeof ROGUE!=='undefined') ? {
+        mods: ROGUE.mods,
+        pickedIds: Array.from(ROGUE.pickedIds),
+        pickedCounts: ROGUE.pickedCounts,
+        history: ROGUE.history,
+      } : null,
+      scanned: (typeof ScannedDB!=='undefined') ? Array.from(ScannedDB) : [],
+      dayNightElapsed: (typeof DAYNIGHT!=='undefined') ? DAYNIGHT.elapsed : 0,
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    _refreshContinueButton();
+  }catch(err){
+    console.error('Erro ao salvar partida:', err);
+  }
+}
+
+function loadGame(){
+  let data;
+  try{
+    const raw = localStorage.getItem(SAVE_KEY);
+    if(!raw) return false;
+    data = JSON.parse(raw);
+  }catch(err){
+    console.error('Save corrompido:', err);
+    return false;
+  }
+
+  seedStr = data.seed || seedStr;
+  gameMode = data.mode || gameMode;
+  WORLD_W = data.worldW || WORLD_W;
+  WORLD_H = data.worldH || WORLD_H;
+  initWorldBuffers();
+  worldGrids[DIM.SURFACE].set(new Uint8Array(data.grid).slice(0, worldGrids[DIM.SURFACE].length));
+  if(data.integrity){
+    integrities[DIM.SURFACE].set(new Uint16Array(data.integrity).slice(0, integrities[DIM.SURFACE].length));
+  }
+
+  currentDim = DIM.SURFACE;
+  flowField  = flowFields[currentDim];
+  dirField   = dirFields[currentDim];
+  chunkDirty = chunkDirtyBuffers[currentDim];
+  minimapDirty = true; minimapUpdateTimer = 0;
+  chunkDirty.fill(1);
+  flowFields[DIM.SURFACE].fill(Infinity);
+
+  const r = data.robot || {};
+  robot.x = r.x||0; robot.y = r.y||0; robot.vx = r.vx||0; robot.vy = r.vy||0; robot.angle = r.angle||0;
+  robot.hp = r.hp!==undefined ? r.hp : 100;
+  robot.energy = r.energy!==undefined ? r.energy : 100;
+  robot.heat = r.heat!==undefined ? r.heat : 0;
+  robot.dead = false;
+  robot.prevBiome = r.prevBiome || '';
+  robot.inCave = !!r.inCave;
+
+  time = data.time || 0; last = 0;
+  score = data.score || 0;
+  wave = data.wave || 0; waveTimer = data.waveTimer || 300; waveSpawnLeft = data.waveSpawnLeft || 0;
+  autoWaveTimer = data.autoWaveTimer || 0;
+  currentWeapon = data.currentWeapon || 'LASER';
+  currentTool = (data.currentTool && data.currentTool!=='laser') ? data.currentTool : 'build';
+  currentBuildType = (data.currentBuildType!==undefined) ? data.currentBuildType : T.BUILT_BLOCK;
+  ownedWeapons = new Set(data.ownedWeapons && data.ownedWeapons.length ? data.ownedWeapons : ['LASER']);
+  ownedAbilities = new Set(data.ownedAbilities || []);
+  weaponCooldowns = {};
+
+  const e = data.evolution || {};
+  evolution.xp = e.xp||0; evolution.level = e.level||1; evolution.xpToNext = e.xpToNext||xpForLevel(2);
+  evolution.totalXP = e.totalXP||0; evolution.points = e.points||0;
+  evolution.unlocked = new Set(e.unlocked||[]);
+  evolution.effectCounts = e.effectCounts||{}; evolution.resets = e.resets||0;
+
+  if(typeof resetRogue==='function') resetRogue();
+  if(data.rogue && typeof ROGUE!=='undefined'){
+    Object.assign(ROGUE.mods, data.rogue.mods||{});
+    ROGUE.pickedIds = new Set(data.rogue.pickedIds||[]);
+    ROGUE.pickedCounts = data.rogue.pickedCounts||{};
+    ROGUE.history = data.rogue.history||[];
+  }
+  // maxHp/maxEnergy/maxHeat dependem de evolution+ROGUE.mods — recalcula
+  // DEPOIS de restaurar os dois, senão usaria os valores padrão de novo jogo.
+  applyPassiveBonuses();
+  robot.maxHp = r.maxHp!==undefined ? r.maxHp : robot.maxHp;
+  robot.maxEnergy = r.maxEnergy!==undefined ? r.maxEnergy : robot.maxEnergy;
+  robot.maxHeat = r.maxHeat!==undefined ? r.maxHeat : robot.maxHeat;
+
+  if(typeof resetScanner==='function') resetScanner();
+  if(typeof ScannedDB!=='undefined' && data.scanned) for(const t of data.scanned) ScannedDB.add(t);
+
+  if(typeof resetDayNight==='function') resetDayNight();
+  if(typeof DAYNIGHT!=='undefined' && data.dayNightElapsed) DAYNIGHT.elapsed = data.dayNightElapsed;
+
+  cam.x = robot.x; cam.y = robot.y;
+  particles.length=0; projectiles.length=0; enemies.length=0; spawnQueue.length=0;
+  bossWarningTimer=0; bossWarningWave=0; activeBoss=null; _lastBossArchetypeIdx=-1;
+  buildCooldown=0; flowTimer=0; portalCooldown=0; teleportCooldown=0; upgradeOpen=false; weaponCooldowns={};
+  pauseReasons.clear();
+
+  rebuildFlowField(Math.floor(robot.x/TILE), Math.floor(robot.y/TILE));
+
+  menuScreen.classList.add('hidden');
+  hud.classList.remove('hidden');
+  if(endScreen) endScreen.classList.remove('show');
+  _applyGameModeUI();
+  running = true;
+  if(!loopStarted){ loopStarted=true; requestAnimationFrame(loop); }
+  showAlert('💾 Partida continuada!');
+  return true;
+}
+
+// Mostra/esconde o botão "Continuar" no menu conforme existe (ou não) save.
+function _refreshContinueButton(){
+  const b = document.getElementById('btnContinue');
+  if(!b) return;
+  b.style.display = hasSavedGame() ? '' : 'none';
+}
+
 // ─── Particle System ─────────────────────────────────────────
 const particles = [];
 function spawnParticle(x,y,vx,vy,life,col,size=3,glow=false){
+  if(IS_POTATO()) return;
   if(particles.length>QUALITY.particleCap) particles.splice(0,1); // remover a mais antiga
   particles.push({x,y,vx,vy,life,max:life,col,size,glow});
 }
@@ -729,7 +839,7 @@ function doExplosion(wx, wy, radius, dmg, isEnemy){
         if(e.hp<=0&&!e.dead){
           e.dead=true;
           // XP vem apenas dos orbs
-          score+=e.score;
+          score+=e.score; enemiesKilled++;
           spawnBurst(e.x,e.y,e.col,12,3);
           spawnXPOrb(e.x,e.y,e.score);
         }
@@ -789,16 +899,66 @@ let activeBoss = null;          // referência ao chefe vivo atual (para o HUD d
 let _lastBossArchetypeIdx = -1; // evita repetir o mesmo arquétipo duas vezes seguidas
 
 // ─── Weapon Types ────────────────────────────────────────────
+// Combate automático: cada arma POSSUÍDA (ver `ownedWeapons`) atira sozinha
+// no inimigo mais próximo, com seu próprio cooldown (ver updateAutoWeapons()).
+// UNIDADE-7 começa só com o LASER (arma padrão, grátis); as demais — e a
+// habilidade de Teleporte — só ficam disponíveis compradas na LOJA (tecla L),
+// pagas com `score`. Ver SHOP_ITEMS mais abaixo.
 const WEAPONS = {
-  LASER:   {name:'Laser',        key:'1', icon:'⚡', energyCost:2,  heatGain:1.5, cooldown:8,  unlockLevel:1},
-  SHOTGUN: {name:'Escopeta',     key:'2', icon:'💥', energyCost:5,  heatGain:3.5, cooldown:30, unlockLevel:1},
-  PLASMA:  {name:'Plasma',       key:'3', icon:'🔵', energyCost:2,  heatGain:2.2, cooldown:1,  unlockLevel:1},
-  ROCKET:  {name:'Foguete',      key:'4', icon:'🚀', energyCost:20, heatGain:5,   cooldown:80, unlockLevel:3},
-  GRENADE: {name:'Granada',      key:'5', icon:'💣', energyCost:12, heatGain:2,   cooldown:60, unlockLevel:5},
-  // Novas armas desbloqueáveis por nível
-  RAILGUN: {name:'Railgun',      key:'6', icon:'⚙', energyCost:40, heatGain:30,   cooldown:120,unlockLevel:8},
-  CHAIN:   {name:'Corrente',     key:'7', icon:'⛓', energyCost:6,  heatGain:2,   cooldown:15, unlockLevel:12},
+  LASER:   {name:'Laser',        key:'1', icon:'⚡', energyCost:2,  heatGain:1.5, cooldown:8,  cost:0},
+  SHOTGUN: {name:'Escopeta',     key:'2', icon:'💥', energyCost:5,  heatGain:3.5, cooldown:30, cost:300},
+  PLASMA:  {name:'Plasma',       key:'3', icon:'🔵', energyCost:2,  heatGain:2.2, cooldown:96, cost:450}, // cooldown = ciclo da rajada: 96 frames = 1.6s a 60fps
+  ROCKET:  {name:'Foguete',      key:'4', icon:'🚀', energyCost:20, heatGain:5,   cooldown:80, cost:700},
+  GRENADE: {name:'Granada',      key:'5', icon:'💣', energyCost:12, heatGain:2,   cooldown:60, cost:1000},
+  RAILGUN: {name:'Railgun',      key:'6', icon:'⚙', energyCost:40, heatGain:30,  cooldown:120,cost:1600},
+  CHAIN:   {name:'Corrente',     key:'7', icon:'⛓', energyCost:6,  heatGain:2,   cooldown:15, cost:2200},
 };
+
+// Armas que UNIDADE-7 já possui nesta partida (começa só com o padrão).
+// Um Set em vez de array pra checagem O(1) em updateAutoWeapons() a cada frame.
+let ownedWeapons = new Set(['LASER']);
+// Habilidades compráveis fora do combate (hoje só o Teleporte).
+let ownedAbilities = new Set();
+// Cooldown individual por arma (chave = nome da arma em WEAPONS), em frames.
+let weaponCooldowns = {};
+
+// Detecção de mobile é feita em mobile-controls.js (window.IS_MOBILE_DEVICE),
+// carregado logo depois deste arquivo — checagem via typeof porque esse
+// arquivo é opcional (o jogo roda normalmente sem ele, sem D-pad).
+// Usado só pra afastar o HUD de armas/teleporte do D-pad na tela.
+function isMobileUI(){ return typeof IS_MOBILE_DEVICE!=='undefined' && IS_MOBILE_DEVICE; }
+const MOBILE_HUD_LIFT = 160; // px — o quanto subir o HUD inferior-esquerdo pra não ficar embaixo do D-pad
+
+// Tiro manual (opção em Configurações, OFF por padrão): quando ligado, as
+// armas só disparam com o botão esquerdo segurado e mirando no cursor — em
+// vez de sozinhas contra o inimigo mais próximo. Ver updateAutoWeapons().
+let manualFireMode = false;
+
+// ─── Loja ──────────────────────────────────────────────────────
+// Itens compráveis com `score`. `type:'weapon'` referencia uma entrada de
+// WEAPONS (soma-se a ownedWeapons); `type:'ability'` referencia uma entrada
+// solta (soma-se a ownedAbilities). Preço sobe naturalmente pela ordem —
+// não precisa ser exatamente igual ao tier de dano da arma.
+const SHOP_ITEMS = [
+  { id:'SHOTGUN',  type:'weapon',  icon:'💥', name:'Escopeta',  desc:'Rajada de 7 projéteis em cone.',      cost:300  },
+  { id:'PLASMA',   type:'weapon',  icon:'🔵', name:'Plasma',    desc:'Disparo rápido, dano constante.',     cost:450  },
+  { id:'TELEPORT', type:'ability', icon:'🌀', name:'Teleporte', desc:'Tecla F/T — pisca até o cursor.',     cost:500  },
+  { id:'ROCKET',   type:'weapon',  icon:'🚀', name:'Foguete',   desc:'Explosão em área, dano alto.',        cost:700  },
+  { id:'GRENADE',  type:'weapon',  icon:'💣', name:'Granada',   desc:'Arco explosivo de curto alcance.',    cost:1000 },
+  { id:'RAILGUN',  type:'weapon',  icon:'⚙',  name:'Railgun',   desc:'Perfura vários inimigos em linha.',   cost:1600 },
+  { id:'CHAIN',    type:'weapon',  icon:'⛓',  name:'Corrente',  desc:'Rebate entre até 3 inimigos próximos.',cost:2200 },
+];
+function isOwned(item){ return item.type==='ability' ? ownedAbilities.has(item.id) : ownedWeapons.has(item.id); }
+function buyShopItem(id){
+  const item = SHOP_ITEMS.find(i=>i.id===id);
+  if(!item || isOwned(item)) return false;
+  if(score < item.cost) return false;
+  score -= item.cost;
+  if(item.type==='ability') ownedAbilities.add(item.id);
+  else { ownedWeapons.add(item.id); currentWeapon = item.id; }
+  spawnBurst(robot.x, robot.y, '#4ade80', 16, 4);
+  return true;
+}
 
 // ─── Sistema de Evolução — Árvore Genealógica ────────────────
 // Estrutura: cada nó tem parent (null = raiz). Para comprar,
@@ -1153,13 +1313,13 @@ const BOSS_WARNING_DURATION = 260; // ~4.3s a 60fps
 let bossWarningTimer = 0;   // >0 enquanto o banner de aviso está visível
 let bossWarningWave  = 0;   // número da onda que disparou o aviso atual
 let score=0;
+let enemiesKilled=0; // contador de inimigos abatidos nesta partida (tela de Game Over)
 let mouseWorld={x:0,y:0};
 let mouseDown=false;
-let currentTool='laser';
+let currentTool='build';
 let currentWeapon='LASER';
 let currentBuildType=T.BUILT_BLOCK;
 let seedStr='nebulosa';
-let weaponCooldown=0;
 let buildCooldown=0;
 let portalCooldown=0; // evita teletransporte infinito
 let teleportCooldown=0; // cooldown do teleporte manual
@@ -1205,24 +1365,17 @@ window.addEventListener('keydown',e=>{
   // Painéis / menus: sempre respondem, mesmo em pause, pois são eles
   // mesmos que controlam o motivo 'upgrade'/'roguelike' do pause.
   if(e.key==='u') showUpgradePanel();
-  if(e.key==='Escape') closeUpgradePanel();
+  if(e.key==='l'||e.key==='L') { shopOpen ? closeShopPanel() : showShopPanel(); }
+  if(e.key==='Escape'){ closeUpgradePanel(); closeShopPanel(); }
 
   // Ações de gameplay (mundo) — bloqueadas enquanto o jogo estiver
-  // pausado por qualquer motivo (manual, upgrade, roguelike).
+  // pausado por qualquer motivo (manual, upgrade, roguelike, loja).
   if(isPaused()) return;
-  if(e.key==='1') setWeapon('LASER');
-  if(e.key==='2') setWeapon('SHOTGUN');
-  if(e.key==='3') setWeapon('PLASMA');
-  if(e.key==='4') setWeapon('ROCKET');
-  if(e.key==='5') setWeapon('GRENADE');
-  if(e.key==='6') setWeapon('RAILGUN');
-  if(e.key==='7') setWeapon('CHAIN');
-  if(e.key==='q') setTool('laser');
+  if(e.key==='q'){ manualFireMode ? setTool('fire') : showAlert('🔒 Ative o Tiro Manual em Configurações'); }
   if(e.key==='e') setTool('build');
   if(e.key==='r') setTool('destroy');
   if(e.key==='b') cycleBuildType();
   if(e.key==='f'||e.key==='t') tryTeleport();
-  if(e.key==='v'||e.key==='V') { if(typeof toggleARIANav==='function') toggleARIANav(); }
 });
 window.addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
 
@@ -1234,10 +1387,6 @@ canvas.addEventListener('mousemove',e=>{
 canvas.addEventListener('mousedown',e=>{ if(e.button===0 && !isPaused()) mouseDown=true; });
 canvas.addEventListener('mouseup',  e=>{ if(e.button===0) mouseDown=false; });
 canvas.addEventListener('contextmenu',e=>{ e.preventDefault(); if(!isPaused()) cycleBuildType(); });
-canvas.addEventListener('wheel',e=>{
-  e.preventDefault();
-  if(!isPaused()) cycleWeapon(Math.sign(e.deltaY));
-},{passive:false});
 
 // ─── Desktop only — mobile removido ──────────────────────────
 
@@ -1291,24 +1440,9 @@ document.querySelectorAll('.tool-btn-hud').forEach(b=>{
   b.addEventListener('click',()=>setTool(b.dataset.tool));
 });
 
-function setWeapon(w){
-  if(!WEAPONS[w]) return;
-  if(WEAPONS[w].unlockLevel > evolution.level){
-    showAlert(`Nível ${WEAPONS[w].unlockLevel} necessário`);
-    return;
-  }
-  currentWeapon=w;
-}
-
-// Cicla para a próxima/anterior arma já desbloqueada (usado pelo scroll do mouse)
+// Ordem de exibição das armas no HUD/loja (não controla mais troca manual —
+// todas as armas POSSUÍDAS atiram sozinhas; ver updateAutoWeapons()).
 const WEAPON_ORDER=['LASER','SHOTGUN','PLASMA','ROCKET','GRENADE','RAILGUN','CHAIN'];
-function cycleWeapon(dir){
-  const unlocked=WEAPON_ORDER.filter(w=>WEAPONS[w].unlockLevel<=evolution.level);
-  if(unlocked.length<=1) return;
-  const idx=unlocked.indexOf(currentWeapon);
-  const next=unlocked[(idx+dir+unlocked.length)%unlocked.length];
-  currentWeapon=next;
-}
 
 // ─── HUD refs ────────────────────────────────────────────────
 const hud         = document.getElementById('hud');
@@ -1327,8 +1461,6 @@ const hudWaveNum  = document.getElementById('hudWaveNum');
 const hudAlert    = document.getElementById('hudAlert');
 const endTitle    = document.getElementById('endTitle');
 const endScore    = document.getElementById('endScore');
-const barSignal   = document.getElementById('barSignal');
-const valSignal   = document.getElementById('valSignal');
 let biomeTimer=0,alertTimer=0;
 
 function showBiome(name){
@@ -1347,8 +1479,6 @@ function updateHUD(){
   if(valHeat)   valHeat.textContent  =ht;
   if(hudScore)  hudScore.textContent =score;
   if(hudWaveNum)hudWaveNum.textContent=wave;
-  if(barSignal) barSignal.style.width=signalProgress+'%';
-  if(valSignal) valSignal.textContent=Math.round(signalProgress)+'%';
   if(barHeat){
     barHeat.style.background=ht>80?'linear-gradient(90deg,#ef4444,#dc2626)':
       ht>50?'linear-gradient(90deg,#fb923c,#ef4444)':'linear-gradient(90deg,#fbbf24,#fb923c)';
@@ -1381,6 +1511,7 @@ let upgradePanel = null; // dados do painel
 
 function showUpgradePanel(){
   if(!running) return;
+  if(shopOpen) closeShopPanel();
   upgradeOpen = true;
   addPause('upgrade');
 }
@@ -1388,6 +1519,86 @@ function closeUpgradePanel(){
   upgradeOpen = false;
   upgradePanel = null;
   removePause('upgrade');
+}
+
+// ─── Loja (Canvas UI) ────────────────────────────────────────
+// Compra armas (além do LASER, que já vem equipado) e a habilidade de
+// Teleporte, gastando `score`. Ver SHOP_ITEMS / buyShopItem() acima.
+let shopOpen = false;
+let shopPanel = null;
+
+function showShopPanel(){
+  if(!running) return;
+  if(typeof ROGUE!=='undefined' && ROGUE.screenOpen) return;
+  if(upgradeOpen) closeUpgradePanel();
+  shopOpen = true;
+  addPause('shop');
+}
+function closeShopPanel(){
+  shopOpen = false;
+  shopPanel = null;
+  removePause('shop');
+}
+
+function drawShopPanel(){
+  if(!shopOpen) return;
+  const rowH=64, headerH=76;
+  const panW=Math.min(W-40,620), panH=Math.min(H-40, headerH+SHOP_ITEMS.length*rowH+24);
+  const px=(W-panW)/2, py=(H-panH)/2;
+
+  ctx.save();
+  ctx.fillStyle='rgba(5,8,18,0.92)';
+  ctx.fillRect(0,0,W,H);
+
+  ctx.fillStyle='rgba(15,20,38,0.98)';
+  ctx.strokeStyle='#38bdf8'; ctx.lineWidth=2;
+  ctx.fillRect(px,py,panW,panH); ctx.strokeRect(px,py,panW,panH);
+
+  ctx.fillStyle='#38bdf8';
+  ctx.font="bold 20px 'Orbitron',sans-serif"; ctx.textAlign='center';
+  ctx.fillText('🛒 LOJA', px+panW/2, py+32);
+  ctx.font="12px 'Share Tech Mono',monospace"; ctx.fillStyle='#94a3b8';
+  ctx.fillText(`Pontuação disponível: ${score}   —   [L] ou [ESC] fecha`, px+panW/2, py+54);
+
+  shopPanel = { cells:{} };
+  let rowY = py+headerH;
+  for(const item of SHOP_ITEMS){
+    const owned = isOwned(item);
+    const afford = score >= item.cost;
+    const rx=px+16, ry=rowY, rw=panW-32, rh=rowH-10;
+
+    ctx.fillStyle = owned ? 'rgba(74,222,128,0.12)' : afford ? 'rgba(56,189,248,0.10)' : 'rgba(100,100,120,0.08)';
+    ctx.strokeStyle = owned ? '#4ade80' : afford ? '#38bdf8' : '#475569';
+    ctx.lineWidth=1.5;
+    ctx.fillRect(rx,ry,rw,rh); ctx.strokeRect(rx,ry,rw,rh);
+
+    ctx.textAlign='left';
+    ctx.font="24px sans-serif";
+    ctx.fillStyle='#fff';
+    ctx.fillText(item.icon, rx+14, ry+rh/2+9);
+
+    ctx.font="bold 14px 'Orbitron',sans-serif";
+    ctx.fillStyle = owned ? '#4ade80' : '#e2e8f0';
+    ctx.fillText(item.name, rx+56, ry+rh/2-2);
+
+    ctx.font="11px 'Share Tech Mono',monospace";
+    ctx.fillStyle='#94a3b8';
+    ctx.fillText(item.desc, rx+56, ry+rh/2+16);
+
+    ctx.textAlign='right';
+    ctx.font="bold 13px 'Share Tech Mono',monospace";
+    if(owned){
+      ctx.fillStyle='#4ade80';
+      ctx.fillText('✔ COMPRADO', rx+rw-16, ry+rh/2+5);
+    } else {
+      ctx.fillStyle = afford ? '#facc15' : '#ef4444';
+      ctx.fillText(`💰 ${item.cost}`, rx+rw-16, ry+rh/2+5);
+    }
+
+    shopPanel.cells[item.id] = { x:rx, y:ry, w:rw, h:rh, item, owned, afford };
+    rowY += rowH;
+  }
+  ctx.restore();
 }
 
 function drawUpgradePanel(){
@@ -1539,7 +1750,28 @@ canvas.addEventListener('click', e=>{
     if(typeof rogueHandleClick==='function') rogueHandleClick(mx,my);
     return;
   }
-  if(!upgradeOpen||!upgradePanel) return;
+  if(!upgradeOpen||!upgradePanel){
+    // Clique na loja
+    if(shopOpen && shopPanel && shopPanel.cells){
+      for(const [id, cell] of Object.entries(shopPanel.cells)){
+        if(mx>=cell.x&&mx<=cell.x+cell.w&&my>=cell.y&&my<=cell.y+cell.h){
+          if(cell.owned){
+            showAlert('✔ Já possui este item.');
+          } else if(!cell.afford){
+            showAlert(`💰 Faltam ${cell.item.cost-score} pontos.`);
+          } else if(buyShopItem(id)){
+            showAlert(`✔ ${cell.item.name} comprado!`);
+          }
+          return;
+        }
+      }
+      const panW2=Math.min(W-40,620);
+      const panH2=Math.min(H-40, 76+SHOP_ITEMS.length*64+24);
+      const px2=(W-panW2)/2, py2=(H-panH2)/2;
+      if(mx<px2||mx>px2+panW2||my<py2||my>py2+panH2) closeShopPanel();
+    }
+    return;
+  }
   if(upgradePanel.cells){
     for(const [id, cell] of Object.entries(upgradePanel.cells)){
       if(!cell) continue;
@@ -1563,25 +1795,10 @@ canvas.addEventListener('click', e=>{
   }
 });
 
-// ─── Interação com Portal (exclusiva das antenas de resgate) ──
-function checkPortalInteraction(){
-  if(portalCooldown>0) return;
-  const tx=Math.floor(robot.x/TILE), ty=Math.floor(robot.y/TILE);
-  const tile=getTile(tx,ty);
-  if(tile===T.PORTAL){
-    for(const ant of antennaStructures){
-      if(!ant.active && Math.abs(ant.tx-tx)<=1 && Math.abs(ant.ty-ty)<=1){
-        activateAntenna(ant);
-        return;
-      }
-    }
-  }
-}
-
 // ─── Blocos Interativos ──────────────────────────────────────
 // Tiles que o jogador pode "usar" ao ficar sobre eles (tecla F já é teleporte,
 // usamos proximidade automática por tile tipo, verificado a cada frame em
-// checkInteractables(), chamado em checkPortalInteraction()).
+// checkInteractables()).
 //
 // Tipos implementados:
 //  RUNE_STONE  — regenera HP ao ficar parado por 2s
@@ -1673,390 +1890,6 @@ function checkInteractables(){
 // Multiplicador de velocidade vindo do buff de cogumelo
 function getMushroomSpeedMult(){ return _interact.mushBuff>0 ? 1.5 : 1.0; }
 
-// ─── Antenna Activation ───────────────────────────────────────
-function activateAntenna(ant){
-  ant.active = true;
-  antennasActive++;
-  signalProgress = (antennasActive / TOTAL_ANTENNAS) * 100;
-  portalCooldown = 120;
-
-  // Visual feedback
-  spawnBurst(ant.tx*TILE+TILE/2, ant.ty*TILE+TILE/2, '#a855f7', 40, 6);
-  spawnBurst(ant.tx*TILE+TILE/2, ant.ty*TILE+TILE/2, '#00e5ff', 20, 4);
-  score += 500;
-
-  // Sentinelas daquela antena ficam dormentes (param de atirar) — a antena já
-  // foi conquistada, não faz sentido continuarem hostis para sempre.
-  if(typeof sentries!=='undefined'){
-    for(const s of sentries){ if(s.ant===ant && !s.dead) s.dormant=true; }
-  }
-
-  if(typeof ariaOnAntenna==='function') ariaOnAntenna();
-  if(antennasActive >= TOTAL_ANTENNAS){
-    // Todas antenas ativas: iniciar contagem regressiva para nave de resgate
-    rescueCountdown = RESCUE_SHIP_FRAMES;
-    spawnRescueShip();
-    showAlert('📡 SINAL ENVIADO! NAVE DE RESGATE EM ROTA — 3:00');
-    if(gameMode===GAME_MODES.INFINITE){
-      // Modo infinito não encerra, continua mas com a nave de resgate
-    }
-  } else {
-    showAlert(`📡 ANTENA ${ant.label} ATIVA! (${antennasActive}/${TOTAL_ANTENNAS})`);
-  }
-  minimapDirty = true;
-}
-
-// ─── Sentinelas de Antena ──────────────────────────────────────
-// Torretas fixas que guardam cada antena de resgate. Ficam num array próprio
-// (`sentries`), separado de `enemies` — ou seja, NÃO contam para a detecção
-// de "onda limpa", não aparecem no contador de onda e não são afetadas pela
-// IA de grupo dos inimigos comuns. São só obstáculos destrutíveis que dão
-// uma recompensa pequena ao serem quebradas.
-const sentries = [];
-const SENTRIES_PER_ANTENNA = 2;
-const SENTRY_HP   = 150;
-const SENTRY_DMG  = 13;
-const SENTRY_RANGE = 380;
-
-function spawnSentry(tx, ty, ant){
-  const {tx:ctx3,ty:cty3} = findClearSpawn(tx, ty);
-  sentries.push({
-    id:_nextEnemyId++, ant,
-    x:ctx3*TILE+TILE/2, y:cty3*TILE+TILE/2,
-    hp:SENTRY_HP, maxHp:SENTRY_HP, dmg:SENTRY_DMG, size:15,
-    shootCooldown:Math.random()*60|0, angle:0, flashTimer:0,
-    dead:false, dormant:false, col:'#facc15',
-  });
-}
-
-// Distribui as sentinelas em anel ao redor de cada antena. Chamada sempre que
-// antennaStructures é (re)definido — geração normal ou mapa importado.
-function spawnAntennaSentries(){
-  sentries.length = 0;
-  if(gameMode===GAME_MODES.CREATIVE) return; // criativo: sem combate
-  for(const ant of antennaStructures){
-    const ringR = (ant.r||6) + 3;
-    const baseAngle = Math.random()*Math.PI*2;
-    for(let k=0;k<SENTRIES_PER_ANTENNA;k++){
-      const a = baseAngle + (Math.PI*2/SENTRIES_PER_ANTENNA)*k;
-      const stx = Math.round(ant.tx + Math.cos(a)*ringR);
-      const sty = Math.round(ant.ty + Math.sin(a)*ringR);
-      spawnSentry(stx, sty, ant);
-    }
-  }
-}
-
-function updateSentries(){
-  for(let i=sentries.length-1;i>=0;i--){
-    const s=sentries[i];
-    if(s.dead){ sentries.splice(i,1); continue; }
-    if(s.flashTimer>0) s.flashTimer--;
-    if(s.shootCooldown>0) s.shootCooldown--;
-    if(s.dormant) continue; // antena já conquistada — não atira mais
-
-    const dx=robot.x-s.x, dy=robot.y-s.y;
-    const d=Math.sqrt(dx*dx+dy*dy)||1;
-    s.angle=Math.atan2(dy,dx);
-    if(d>=SENTRY_RANGE || s.shootCooldown>0) continue;
-    if(typeof hasLineOfSight==='function' && !hasLineOfSight(s.x,s.y,robot.x,robot.y)) continue;
-    spawnProjectile(s.x,s.y,robot.x,robot.y,'enemy',true);
-    s.shootCooldown = 55;
-  }
-}
-
-function drawSentries(){
-  for(const s of sentries){
-    if(s.dead) continue;
-    const sx=s.x-cam.x+W/2, sy=s.y-cam.y+H/2;
-    if(sx<-40||sx>W+40||sy<-40||sy>H+40) continue;
-    ctx.save(); ctx.translate(sx,sy);
-    const col=s.flashTimer>0 ? '#fff' : (s.dormant ? '#4b5563' : s.col);
-
-    ctx.globalAlpha=0.2; ctx.fillStyle='#000';
-    ctx.beginPath(); ctx.ellipse(0,s.size+2,s.size*.9,s.size*.4,0,0,Math.PI*2); ctx.fill();
-    ctx.globalAlpha=1;
-
-    // Base
-    ctx.fillStyle='#3f3f46';
-    ctx.beginPath(); ctx.arc(0,0,s.size,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle='rgba(0,0,0,0.5)'; ctx.lineWidth=2; ctx.stroke();
-    // Canhão giratório
-    ctx.rotate(s.angle);
-    ctx.fillStyle=col;
-    ctx.fillRect(0,-3,s.size+7,6);
-    ctx.rotate(-s.angle);
-    ctx.fillStyle=col;
-    ctx.beginPath(); ctx.arc(0,0,s.size*0.55,0,Math.PI*2); ctx.fill();
-    ctx.restore();
-
-    // HP bar
-    if(!s.dormant){
-      const hpF=s.hp/s.maxHp, bw=s.size*2, bh=4;
-      ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(sx-bw/2,sy-s.size-10,bw,bh);
-      ctx.fillStyle=hpF>0.5?'#facc15':hpF>0.25?'#fb923c':'#ef4444';
-      ctx.fillRect(sx-bw/2,sy-s.size-10,bw*hpF,bh);
-    }
-  }
-}
-
-// ─── Rescue Ship System ───────────────────────────────────────
-function _findRescueLandingZone(){
-  // Escolhe posição aleatória, longe do jogador (>80 tiles), com espaço livre
-  const MIN_DIST_TILES = 80;
-  const wg = worldGrids[DIM.SURFACE];
-  for(let attempt=0; attempt<120; attempt++){
-    const tx = 20 + Math.floor(Math.random()*(WORLD_W-40));
-    const ty = 20 + Math.floor(Math.random()*(WORLD_H-40));
-    const dx = Math.abs(tx - Math.floor(robot.x/TILE));
-    const dy = Math.abs(ty - Math.floor(robot.y/TILE));
-    if(Math.sqrt(dx*dx+dy*dy) < MIN_DIST_TILES) continue;
-    // Verificar área livre (5x5)
-    let ok = true;
-    for(let oy=-2;oy<=2&&ok;oy++) for(let ox=-2;ox<=2&&ok;ox++){
-      const ntx=tx+ox, nty=ty+oy;
-      if(!inBounds(ntx,nty)){ ok=false; break; }
-      const t=wg[wi(ntx,nty)];
-      if(SOLID.has(t)||t===T.DEEP_WATER||t===T.LAVA){ ok=false; }
-    }
-    if(ok) return {tx, ty};
-  }
-  // Fallback: usar canto oposto ao jogador
-  const fx = robot.x/TILE > WORLD_W/2 ? 20 : WORLD_W-20;
-  const fy = robot.y/TILE > WORLD_H/2 ? 20 : WORLD_H-20;
-  return {tx: Math.floor(fx), ty: Math.floor(fy)};
-}
-
-function spawnRescueShip(){
-  const lz = _findRescueLandingZone();
-  // A nave começa fora do mapa e voa até a zona de pouso
-  const angle = Math.random()*Math.PI*2;
-  const startDist = Math.max(WORLD_W, WORLD_H) * TILE * 0.6;
-  const targetX = (lz.tx + 0.5)*TILE;
-  const targetY = (lz.ty + 0.5)*TILE;
-  rescueShip = {
-    x: targetX + Math.cos(angle)*startDist,
-    y: targetY + Math.sin(angle)*startDist,
-    targetX, targetY,
-    angle: angle + Math.PI, // aponta para o target
-    phase: 'incoming',   // incoming → landing → landed
-    arrivalTimer: RESCUE_SHIP_FRAMES, // voa durante toda a contagem
-    landedTimer: 0,
-    pulse: 0,
-    lz,
-  };
-  if(typeof ariaOnRescueShip==='function') ariaOnRescueShip();
-}
-
-function updateRescueShip(){
-  if(!rescueShip) return;
-  const rs = rescueShip;
-  rs.pulse += 0.06;
-
-  if(rs.phase === 'incoming'){
-    // Move suavemente em direção ao alvo
-    const dx = rs.targetX - rs.x, dy = rs.targetY - rs.y;
-    const d = Math.hypot(dx,dy)||1;
-    // velocidade proporcional ao tempo restante (desacelera perto do fim)
-    const progress = 1 - (rescueCountdown / RESCUE_SHIP_FRAMES);
-    const speed = Math.max(2, d * 0.012 * (1 + progress*2));
-    rs.x += dx/d * Math.min(speed, d);
-    rs.y += dy/d * Math.min(speed, d);
-    rs.angle = Math.atan2(dy, dx);
-    if(d < TILE*2) rs.phase = 'landing';
-  }
-
-  if(rs.phase === 'landing'){
-    rs.landedTimer++;
-    rs.x = rs.targetX; rs.y = rs.targetY;
-    if(rs.landedTimer > 60) rs.phase = 'landed';
-  }
-
-  if(rs.phase === 'landed'){
-    // Verifica se o jogador chegou à nave
-    const dist = Math.hypot(robot.x - rs.targetX, robot.y - rs.targetY);
-    if(dist < TILE*4){
-      endGame(true);
-    }
-  }
-}
-
-function updateRescueCountdown(){
-  if(rescueCountdown < 0) return;
-  rescueCountdown--;
-  updateRescueShip();
-
-  // Alertas periódicos
-  const secs = Math.ceil(rescueCountdown/60);
-  if(rescueCountdown === RESCUE_SHIP_FRAMES - 1) return; // já mostrou na ativação
-  if(secs===120&&rescueCountdown%60===0) showAlert('🚀 NAVE DE RESGATE — 2:00 RESTANTES');
-  if(secs===60 &&rescueCountdown%60===0) showAlert('🚀 NAVE DE RESGATE — 1:00 RESTANTE');
-  if(secs===30 &&rescueCountdown%60===0){ showAlert('⚠ NAVE DE RESGATE — 0:30'); if(typeof ariaOnRescueLow==='function') ariaOnRescueLow(); }
-  if(secs===10 &&rescueCountdown%60===0) showAlert('⚠ NAVE DE RESGATE — 10 SEGUNDOS!');
-  if(secs===5  &&rescueCountdown%60===0) showAlert('‼ NAVE CHEGANDO — CORRA!');
-  if(rescueShip && rescueShip.phase==='landed' && rescueCountdown===0){
-    // Se countdown chegou a 0 e o jogador não embarcou: derrota por abandono
-    if(gameMode!==GAME_MODES.INFINITE){
-      showAlert('❌ JANELA DE RESGATE ENCERRADA.');
-      setTimeout(()=>{ if(running) endGame(false); }, 2000);
-    } else {
-      // Modo infinito: reset antenas
-      antennasActive=0; signalProgress=0; rescueCountdown=-1; rescueShip=null;
-      for(const a of antennaStructures) a.active=false;
-      minimapDirty=true;
-    }
-  }
-}
-
-function drawRescueShip(){
-  if(!rescueShip) return;
-  const rs = rescueShip;
-  const sx = rs.x - cam.x + W/2;
-  const sy = rs.y - cam.y + H/2;
-
-  ctx.save();
-  ctx.translate(sx, sy);
-  ctx.rotate(rs.angle + Math.PI/2);
-
-  const pulse = Math.sin(rs.pulse)*0.5+0.5;
-  const scale = rs.phase==='landing' ? (0.7+rs.landedTimer/60*0.3) : 1;
-  ctx.scale(scale, scale);
-
-  // Glow
-  ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = Q(24+pulse*12);
-
-  if(spriteReady(SPRITES.ship)){
-    const dh=46, dw=dh*(SPRITES.ship.naturalWidth/SPRITES.ship.naturalHeight);
-    ctx.drawImage(SPRITES.ship,-dw/2,-dh/2,dw,dh);
-  } else {
-    // Fallback vetorial enquanto o sprite carrega
-    const bodyGrad = ctx.createRadialGradient(0,-5,2,0,0,22);
-    bodyGrad.addColorStop(0,'#a0ecff');
-    bodyGrad.addColorStop(0.5,'#0099cc');
-    bodyGrad.addColorStop(1,'#004466');
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.ellipse(0,0,14,22,0,0,Math.PI*2);
-    ctx.fill();
-    ctx.strokeStyle=`rgba(0,229,255,${0.6+pulse*0.4})`;
-    ctx.lineWidth=2;
-    ctx.beginPath();
-    ctx.ellipse(0,0,14,22,0,0,Math.PI*2);
-    ctx.stroke();
-  }
-  ctx.shadowBlur=0;
-
-  // Motor / thruster (glow extra sobre o sprite)
-  if(rs.phase!=='landed'){
-    ctx.shadowColor='#f97316'; ctx.shadowBlur=Q(20+pulse*15);
-    ctx.fillStyle=`rgba(249,115,22,${0.6+pulse*0.4})`;
-    ctx.beginPath(); ctx.ellipse(0,22,5,8+pulse*4,0,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=`rgba(255,220,100,${0.4+pulse*0.3})`;
-    ctx.beginPath(); ctx.ellipse(0,22,2,4+pulse*2,0,0,Math.PI*2); ctx.fill();
-  }
-
-  ctx.shadowBlur=0;
-  ctx.restore();
-
-  // Label "RESGATE" quando pousada
-  if(rs.phase==='landed'){
-    const al = Math.min(1,(rs.landedTimer-30)/30);
-    ctx.save();
-    ctx.globalAlpha=al;
-    ctx.shadowColor='#00e5ff'; ctx.shadowBlur=Q(8);
-    ctx.fillStyle='#00e5ff'; ctx.font="bold 10px 'Orbitron',sans-serif"; ctx.textAlign='center';
-    ctx.fillText('⬆ EMBARCAR',sx,sy-32);
-    ctx.font="8px 'Share Tech Mono',monospace"; ctx.fillStyle='rgba(150,240,255,0.8)';
-    ctx.fillText('Aproxime-se para embarcar',sx,sy-20);
-    ctx.shadowBlur=0; ctx.restore();
-  }
-
-  // Indicador no minimap: ponto verde pulsando
-  if(mctx && rs.phase==='landed'){
-    const mx = rs.targetX/TILE/WORLD_W*(minimapCanvas.width||120);
-    const my = rs.targetY/TILE/WORLD_H*(minimapCanvas.height||80);
-    mctx.save();
-    mctx.fillStyle=`rgba(0,229,255,${0.7+pulse*0.3})`;
-    mctx.beginPath(); mctx.arc(mx,my,4+pulse*2,0,Math.PI*2); mctx.fill();
-    mctx.restore();
-  }
-}
-
-function drawRescueCountdownHUD(){
-  if(rescueCountdown < 0) return;
-  const secs = Math.ceil(rescueCountdown/60);
-  const mins = Math.floor(secs/60);
-  const s2 = secs%60;
-  const timeStr = `${mins}:${s2.toString().padStart(2,'0')}`;
-  const progress = rescueCountdown / RESCUE_SHIP_FRAMES;
-
-  ctx.save();
-  const bw=180, bh=38, bx=(W-bw)/2, by=8;
-
-  // Fundo
-  ctx.fillStyle='rgba(4,10,22,0.82)';
-  roundRect(ctx,bx,by,bw,bh,6); ctx.fill();
-  // Borda pulsando
-  const urgency = secs < 30 ? 1 : secs < 60 ? 0.7 : 0.4;
-  const borderCol = secs < 30 ? `rgba(239,68,68,${0.5+Math.sin(time*0.18)*0.4})` :
-                    secs < 60 ? `rgba(249,115,22,0.6)` : `rgba(0,229,255,0.45)`;
-  ctx.strokeStyle=borderCol; ctx.lineWidth=1.5;
-  roundRect(ctx,bx,by,bw,bh,6); ctx.stroke();
-
-  // Barra de progresso
-  const barColor = secs<30 ? '#ef4444' : secs<60 ? '#f97316' : '#00e5ff';
-  ctx.fillStyle='rgba(0,0,0,0.3)';
-  roundRect(ctx,bx+6,by+26,bw-12,6,3); ctx.fill();
-  ctx.fillStyle=barColor;
-  roundRect(ctx,bx+6,by+26,(bw-12)*progress,6,3); ctx.fill();
-
-  // Texto
-  ctx.fillStyle='#00e5ff'; ctx.font="bold 11px 'Orbitron',sans-serif"; ctx.textAlign='center';
-  ctx.shadowColor='#00e5ff'; ctx.shadowBlur=Q(6);
-  ctx.fillText(`🚀 NAVE DE RESGATE`,bx+bw/2,by+14);
-  ctx.shadowBlur=0;
-  ctx.fillStyle=secs<30?'#ef4444':secs<60?'#fb923c':'rgba(200,240,255,0.9)';
-  ctx.font="bold 10px 'Share Tech Mono',monospace";
-  ctx.fillText(
-    rescueShip&&rescueShip.phase==='landed' ? '⬆ VÁ ATÉ A NAVE!' : timeStr,
-    bx+bw/2, by+24
-  );
-  ctx.restore();
-}
-
-function drawAntennaHUD(){
-  if(!running) return;
-  // Mostrar antenas mais próximas no canto
-  const sorted = [...antennaStructures].filter(a=>!a.active).sort((a,b)=>{
-    return Math.hypot(a.tx*TILE-robot.x, a.ty*TILE-robot.y) -
-           Math.hypot(b.tx*TILE-robot.x, b.ty*TILE-robot.y);
-  });
-  if(sorted.length===0) return;
-  const nearest = sorted[0];
-  const dist = Math.hypot(nearest.tx*TILE-robot.x, nearest.ty*TILE-robot.y)|0;
-  const ang = Math.atan2(nearest.ty*TILE-robot.y, nearest.tx*TILE-robot.x);
-
-  ctx.save();
-  const bx=14, by=H-100;
-  ctx.fillStyle='rgba(4,10,22,0.72)';
-  roundRect(ctx,bx,by,110,26,5);ctx.fill();
-  ctx.strokeStyle='rgba(168,85,247,0.5)';ctx.lineWidth=1;
-  roundRect(ctx,bx,by,110,26,5);ctx.stroke();
-
-  // Arrow
-  ctx.save();
-  ctx.translate(bx+14,by+13);ctx.rotate(ang);
-  ctx.fillStyle='#a855f7';
-  ctx.beginPath();ctx.moveTo(8,0);ctx.lineTo(-4,4);ctx.lineTo(-4,-4);ctx.closePath();ctx.fill();
-  ctx.restore();
-
-  ctx.fillStyle='#a855f7';
-  ctx.font=`bold 8px 'Orbitron',sans-serif`;ctx.textAlign='left';
-  ctx.fillText(`ANT. ${nearest.label}`,bx+26,by+10);
-  ctx.font=`8px 'Share Tech Mono',monospace`;
-  ctx.fillStyle='rgba(200,180,255,0.7)';
-  ctx.fillText(`${Math.round(dist/TILE)} tiles`,bx+26,by+21);
-  ctx.restore();
-}
 
 // ─── Wave System (Balanceado) ─────────────────────────────────
 // Ondas mais suaves no início, escala gradual, eventos especiais
@@ -2299,7 +2132,6 @@ function updateRobot(dt){
 
   if(robot.invTimer>0)   robot.invTimer--;
   if(portalCooldown>0)   portalCooldown--;
-  checkPortalInteraction();
   checkInteractables();
 
   const bname=binfo.name||'?';
@@ -2313,7 +2145,7 @@ function updateRobot(dt){
 
   if(robot.hp<=0&&gameMode!==GAME_MODES.CREATIVE){
     if(!(typeof rogueTryEmergencyShield==='function' && rogueTryEmergencyShield())){
-      robot.dead=true;endGame(false);
+      robot.dead=true;endGame();
     }
   }
 
@@ -2327,7 +2159,6 @@ function updateRobot(dt){
       inWater?24:14,tc,3);
   }
 
-  if(weaponCooldown>0)   weaponCooldown--;
   if(buildCooldown>0)    buildCooldown--;
   if(teleportCooldown>0) teleportCooldown--;
   
@@ -2363,9 +2194,10 @@ function resolveBlockCollisions(){
 // Tecla F: teleporta até o cursor do mouse dentro de um raio limitado.
 // Custa TODA a energia. Cooldown de 4s após uso.
 const TELEPORT_RANGE = 400; // px máximo de distância
-const TELEPORT_COOLDOWN_FRAMES = 30; // xs a 60fps
+const TELEPORT_COOLDOWN_FRAMES = 240; // 4s a 60fps (era 30 — não batia com a doc/HUD)
 
 function tryTeleport(){
+  if(!ownedAbilities.has('TELEPORT')){ showAlert('🔒 TELEPORTE NÃO COMPRADO — [L] LOJA'); return; }
   if(!running||robot.dead) return;
   if(teleportCooldown>0){ showAlert('TELEPORTE EM RECARGA'); return; }
   if(robot.energy<20){ showAlert('ENERGIA INSUFICIENTE'); return; }
@@ -2407,57 +2239,103 @@ function tryTeleport(){
   showAlert('⚡ TELEPORTE');
 }
 
-// ─── Weapon Fire ─────────────────────────────────────────────
-function tryWeaponAction(){
-  if(currentTool!=='laser') return;
-  const wdef=WEAPONS[currentWeapon];
-  if(!wdef||weaponCooldown>0) return;
-  if(robot.energy<wdef.energyCost) return;
+// ─── Combate automático ────────────────────────────────────────
+// Cada arma POSSUÍDA (ownedWeapons) atira sozinha, no seu próprio ritmo,
+// contra o inimigo vivo mais próximo dentro do alcance — o jogador só
+// precisa se posicionar. Substitui o antigo disparo manual (mirar+clicar).
+function findNearestEnemy(x,y,maxRange){
+  let best=null,bestD2=maxRange*maxRange;
+  for(const e of enemies){
+    if(e.dead) continue;
+    const dx=e.x-x, dy=e.y-y;
+    const d2=dx*dx+dy*dy;
+    if(d2<bestD2){ bestD2=d2; best=e; }
+  }
+  return best;
+}
 
-  const dx=mouseWorld.x-robot.x, dy=mouseWorld.y-robot.y;
-  const d=Math.sqrt(dx*dx+dy*dy);
-  if(d>LASER_RANGE) return;
+function fireWeaponAt(weaponKey, tgtX, tgtY){
+  const wdef=WEAPONS[weaponKey];
+  const dx=tgtX-robot.x, dy=tgtY-robot.y;
 
-  // Chips roguelike podem acelerar recarga e reduzir geração de calor
-  // (ex: Overclock ativo). Ver roguelike.js — neutro (1) se nada ativo.
-  const rCooldownMult = (typeof rogueGetCooldownMult==='function') ? rogueGetCooldownMult() : 1;
-  const rHeatMult     = (typeof ROGUE!=='undefined' && ROGUE.mods) ? ROGUE.mods.heatGainMult : 1;
-
+  const rHeatMult = (typeof ROGUE!=='undefined' && ROGUE.mods) ? ROGUE.mods.heatGainMult : 1;
   robot.energy=Math.max(0,robot.energy-wdef.energyCost);
   robot.heat=Math.min(robot.maxHeat,robot.heat+wdef.heatGain*rHeatMult);
-  weaponCooldown=Math.max(1,Math.round(wdef.cooldown*rCooldownMult));
 
-  // Dano base + bônus de bioma do chip roguelike (ex: +dano no Vulcânico)
   const rDmgMult = (typeof rogueGetDamageMult==='function') ? rogueGetDamageMult() : 1;
   const dmgMult = getUpgradeValue('laserDmg') * rDmgMult;
-
-  // BUG FIX: crítico estava definido mas nunca aplicado
   const critChance = getUpgradeValue('critChance');
   const isCrit = Math.random() < critChance;
   const finalDmgMult = isCrit ? dmgMult * getUpgradeValue('critMult') : dmgMult;
 
-  if(currentWeapon==='LASER'){
-    spawnProjectile(robot.x,robot.y,mouseWorld.x,mouseWorld.y,'laser',false,{dmgMult:finalDmgMult,isCrit});
-  } else if(currentWeapon==='SHOTGUN'){
+  if(weaponKey==='LASER'){
+    spawnProjectile(robot.x,robot.y,tgtX,tgtY,'laser',false,{dmgMult:finalDmgMult,isCrit});
+  } else if(weaponKey==='SHOTGUN'){
     const baseAngle=Math.atan2(dy,dx);
     for(let i=-3;i<=3;i++){
       const a=baseAngle+i*0.12+(Math.random()-0.5)*0.05;
       spawnProjectile(robot.x,robot.y,robot.x+Math.cos(a)*100,robot.y+Math.sin(a)*100,'pellet',false,{dmgMult:finalDmgMult,isCrit});
     }
-  } else if(currentWeapon==='PLASMA'){
-    spawnProjectile(robot.x,robot.y,mouseWorld.x,mouseWorld.y,'plasma',false,{dmgMult:finalDmgMult,isCrit});
-  } else if(currentWeapon==='ROCKET'){
-    spawnProjectile(robot.x,robot.y,mouseWorld.x,mouseWorld.y,'rocket',false,{dmgMult:finalDmgMult,isCrit});
-  } else if(currentWeapon==='GRENADE'){
-    spawnProjectile(robot.x,robot.y,mouseWorld.x,mouseWorld.y,'grenade',false,{dmgMult:finalDmgMult,isCrit});
-  } else if(currentWeapon==='RAILGUN'){
-    // Railgun: perfura múltiplos inimigos
-    spawnProjectile(robot.x,robot.y,mouseWorld.x,mouseWorld.y,'railgun',false,{dmgMult:finalDmgMult,isCrit,pierce:true});
-  } else if(currentWeapon==='CHAIN'){
-    // Chain: rebate entre inimigos próximos
-    spawnProjectile(robot.x,robot.y,mouseWorld.x,mouseWorld.y,'chain',false,{dmgMult:finalDmgMult,isCrit,bounces:3});
+  } else if(weaponKey==='PLASMA'){
+    if(manualFireMode){
+      // Tiro manual: 1 disparo preciso por clique/cooldown, como as outras armas
+      spawnProjectile(robot.x,robot.y,tgtX,tgtY,'plasma',false,{dmgMult:finalDmgMult,isCrit});
+    } else {
+      // Tiro automático: rajada de 3 — mesmo alvo, pequeno deslocamento no
+      // ponto de saída só pra separar visualmente os 3 tiros (não é espalhamento
+      // de precisão como a Escopeta; os três convergem no mesmo alvo).
+      for(let i=-1;i<=1;i++){
+        spawnProjectile(robot.x+i*4,robot.y+i*4,tgtX,tgtY,'plasma',false,{dmgMult:finalDmgMult,isCrit});
+      }
+    }
+  } else if(weaponKey==='ROCKET'){
+    spawnProjectile(robot.x,robot.y,tgtX,tgtY,'rocket',false,{dmgMult:finalDmgMult,isCrit});
+  } else if(weaponKey==='GRENADE'){
+    spawnProjectile(robot.x,robot.y,tgtX,tgtY,'grenade',false,{dmgMult:finalDmgMult,isCrit});
+  } else if(weaponKey==='RAILGUN'){
+    spawnProjectile(robot.x,robot.y,tgtX,tgtY,'railgun',false,{dmgMult:finalDmgMult,isCrit,pierce:true});
+  } else if(weaponKey==='CHAIN'){
+    spawnProjectile(robot.x,robot.y,tgtX,tgtY,'chain',false,{dmgMult:finalDmgMult,isCrit,bounces:3});
   }
 }
+
+function updateAutoWeapons(){
+  if(gameMode===GAME_MODES.CREATIVE) return; // sem combate no modo criativo
+  const rCooldownMult = (typeof rogueGetCooldownMult==='function') ? rogueGetCooldownMult() : 1;
+
+  // Modo manual: nada dispara sem o botão esquerdo segurado (e com a
+  // ferramenta "Atirar" selecionada) — sem isso, pula o frame inteiro.
+  const manualActive = manualFireMode && currentTool==='fire' && mouseDown;
+  if(manualFireMode && !manualActive) return;
+
+  // Alvo automático: calculado UMA VEZ por frame (não uma vez por arma) e
+  // reaproveitado por todas as armas possuídas — evita 7 varreduras
+  // idênticas em `enemies` a cada frame conforme o jogador compra mais armas.
+  let cachedNearest, nearestComputed=false;
+
+  for(const w of WEAPON_ORDER){
+    if(!ownedWeapons.has(w)) continue;
+    if(weaponCooldowns[w]===undefined) weaponCooldowns[w]=0;
+    if(weaponCooldowns[w]>0){ weaponCooldowns[w]--; continue; }
+    const wdef=WEAPONS[w];
+    if(robot.energy<wdef.energyCost) continue;
+
+    let tx,ty;
+    if(manualFireMode){
+      const dx=mouseWorld.x-robot.x, dy=mouseWorld.y-robot.y;
+      if(Math.sqrt(dx*dx+dy*dy)>LASER_RANGE) continue; // cursor fora de alcance
+      tx=mouseWorld.x; ty=mouseWorld.y;
+    } else {
+      if(!nearestComputed){ cachedNearest=findNearestEnemy(robot.x,robot.y,LASER_RANGE); nearestComputed=true; }
+      if(!cachedNearest) continue;
+      tx=cachedNearest.x; ty=cachedNearest.y;
+    }
+
+    fireWeaponAt(w, tx, ty);
+    weaponCooldowns[w]=Math.max(1,Math.round(wdef.cooldown*rCooldownMult));
+  }
+}
+
 
 function tryBuildAction(){
   if(currentTool==='build'){
@@ -2614,7 +2492,7 @@ function updateProjectiles(){
           if(p.isCrit) spawnBurst(e.x,e.y,'#ffe100',10,3);
           if(e.hp<=0&&!e.dead){
             e.dead=true;
-            score+=e.score;
+            score+=e.score; enemiesKilled++;
             // XP vem apenas dos orbs ao serem coletados (evitar dupla contagem)
             spawnBurst(e.x,e.y,e.col,14,3);
             spawnXPOrb(e.x,e.y,e.xp||e.score);
@@ -2642,36 +2520,6 @@ function updateProjectiles(){
               doExplosion(p.x,p.y,(p.type==='rocket'?80:60)*blastMult,p.dmg,false);
             }
             projectiles.splice(i,1); hit=true; break;
-          }
-        }
-      }
-      // ── Sentinelas de antena (array separado de `enemies`) ──────
-      if(!hit){
-        for(let j=sentries.length-1;j>=0;j--){
-          const s=sentries[j];
-          if(s.dead) continue;
-          if(p.pierce && p.pierceHit.has('sentry'+s.id)) continue;
-          const dx=p.x-s.x,dy=p.y-s.y;
-          if(dx*dx+dy*dy<s.size*s.size*2){
-            s.hp-=p.dmg; s.flashTimer=10;
-            spawnBurst(s.x,s.y,s.col,5,2);
-            if(p.isCrit) spawnBurst(s.x,s.y,'#ffe100',10,3);
-            if(s.hp<=0&&!s.dead){
-              s.dead=true;
-              score+=25;
-              spawnBurst(s.x,s.y,s.col,14,3);
-              spawnXPOrb(s.x,s.y,20);
-              showAlert('🛰️ Sentinela destruída!');
-            }
-            if(p.pierce){ p.pierceHit.add('sentry'+s.id); }
-            else{
-              if(p.type==='rocket'||p.type==='grenade'){
-                const blastMult=getUpgradeValue('blastRadius');
-                doExplosion(p.x,p.y,(p.type==='rocket'?80:60)*blastMult,p.dmg,false);
-              }
-              projectiles.splice(i,1); hit=true;
-            }
-            break;
           }
         }
       }
@@ -2762,12 +2610,12 @@ function updateEnemies(){
         if(underTile===T.TRAP_DAMAGE){
           e.hp-=0.8;e.flashTimer=4;
           if(Math.random()<0.08) spawnParticle(e.x,e.y,(Math.random()-.5)*2,-1,15,'#ef4444',3);
-          if(e.hp<=0&&!e.dead){e.dead=true;score+=e.score;spawnBurst(e.x,e.y,e.col,10,3);spawnXPOrb(e.x,e.y,e.xp||e.score);}
+          if(e.hp<=0&&!e.dead){e.dead=true;score+=e.score;enemiesKilled++;spawnBurst(e.x,e.y,e.col,10,3);spawnXPOrb(e.x,e.y,e.xp||e.score);}
         }
         if(underTile===T.SPIKE_BLOCK){
           e.hp-=2.5;e.flashTimer=6;
           spawnParticle(e.x,e.y,(Math.random()-.5)*2,-1.5,18,'#ef4444',3);
-          if(e.hp<=0&&!e.dead){e.dead=true;score+=e.score;spawnBurst(e.x,e.y,e.col,10,3);spawnXPOrb(e.x,e.y,e.xp||e.score);}
+          if(e.hp<=0&&!e.dead){e.dead=true;score+=e.score;enemiesKilled++;spawnBurst(e.x,e.y,e.col,10,3);spawnXPOrb(e.x,e.y,e.xp||e.score);}
         }
       }
     }
@@ -2982,31 +2830,6 @@ function drawMinimap(){
     mctx.beginPath();mctx.arc(ex,ey,e.elite?2.5:1.5,0,Math.PI*2);mctx.fill();
   }
 
-  // Antenna dots
-  for(const ant of antennaStructures){
-    const ax=ant.tx/WORLD_W*mw,ay=ant.ty/WORLD_H*mh;
-    mctx.fillStyle=ant.active?'#22c55e':'#facc15';
-    mctx.beginPath();mctx.arc(ax,ay,3,0,Math.PI*2);mctx.fill();
-    if(!ant.active){
-      const pulse=(Math.sin(time*0.06)+1)*0.5;
-      mctx.strokeStyle=`rgba(250,204,21,${0.3+pulse*0.4})`;
-      mctx.lineWidth=0.8;
-      mctx.beginPath();mctx.arc(ax,ay,4+pulse*2,0,Math.PI*2);mctx.stroke();
-    }
-  }
-
-  // Rescue ship dot
-  if(rescueShip){
-    const rsx=rescueShip.targetX/TILE/WORLD_W*mw, rsy=rescueShip.targetY/TILE/WORLD_H*mh;
-    const rsPulse=(Math.sin(time*0.10)+1)*0.5;
-    mctx.fillStyle=rescueShip.phase==='landed'?`rgba(0,229,255,${0.8+rsPulse*0.2})`:`rgba(0,229,255,0.5)`;
-    mctx.beginPath(); mctx.arc(rsx,rsy,rescueShip.phase==='landed'?4+rsPulse*2:3,0,Math.PI*2); mctx.fill();
-    if(rescueShip.phase!=='landed'){
-      const rcx=rescueShip.x/TILE/WORLD_W*mw, rcy=rescueShip.y/TILE/WORLD_H*mh;
-      mctx.strokeStyle='rgba(0,229,255,0.6)'; mctx.lineWidth=1;
-      mctx.beginPath(); mctx.moveTo(rcx,rcy); mctx.lineTo(rsx,rsy); mctx.stroke();
-    }
-  }
 }
 
 // ─── Tile Colors ─────────────────────────────────────────────
@@ -3249,7 +3072,7 @@ function drawWorld(){
 
   // Build hover
   const bRange = getUpgradeValue('buildRange');
-  if(running&&currentTool!=='laser'){
+  if(running){
     const htx=Math.floor(mouseWorld.x/TILE),hty=Math.floor(mouseWorld.y/TILE);
     const dr=Math.hypot(mouseWorld.x-robot.x,mouseWorld.y-robot.y);
     if(dr<=bRange){
@@ -3269,6 +3092,20 @@ function drawWorld(){
         ctx.strokeStyle='rgba(239,68,68,0.65)';ctx.lineWidth=1.5;ctx.strokeRect(hsx,hsy,ts,ts);
       }
     }
+    // Retículo de mira do Tiro Manual — só existe com a ferramenta selecionada
+    if(manualFireMode && currentTool==='fire'){
+      const fdr=Math.hypot(mouseWorld.x-robot.x,mouseWorld.y-robot.y);
+      const inRange=fdr<=LASER_RANGE;
+      const msx=mouseWorld.x-cam.x+W/2, msy=mouseWorld.y-cam.y+H/2;
+      ctx.save();
+      ctx.strokeStyle=inRange?(mouseDown?'rgba(239,68,68,0.9)':'rgba(0,230,255,0.75)'):'rgba(150,150,150,0.4)';
+      ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.arc(msx,msy,10,0,Math.PI*2);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(msx-16,msy);ctx.lineTo(msx-5,msy);ctx.moveTo(msx+5,msy);ctx.lineTo(msx+16,msy);
+      ctx.moveTo(msx,msy-16);ctx.lineTo(msx,msy-5);ctx.moveTo(msx,msy+5);ctx.lineTo(msx,msy+16);
+      ctx.stroke();
+      ctx.restore();
+    }
     const rx=robot.x-cam.x+W/2,ry=robot.y-cam.y+H/2;
     ctx.save();
     ctx.strokeStyle='rgba(0,230,255,0.10)';ctx.lineWidth=1;ctx.setLineDash([4,4]);
@@ -3278,27 +3115,9 @@ function drawWorld(){
 }
 
 // ─── Draw Lasers / Projectiles ────────────────────────────────
+// (a linha de mira manual foi removida — o combate agora é automático;
+// os disparos em si continuam visíveis via o loop de projéteis abaixo)
 function drawLasers(){
-  if(mouseDown&&currentTool==='laser'&&robot.energy>1){
-    const dx=mouseWorld.x-robot.x,dy=mouseWorld.y-robot.y;
-    if(Math.sqrt(dx*dx+dy*dy)<=LASER_RANGE){
-      ctx.save();
-      const lc=currentWeapon==='PLASMA'?'#38bdf8':
-               currentWeapon==='ROCKET'?'#f97316':
-               currentWeapon==='GRENADE'?'#fbbf24':
-               currentWeapon==='RAILGUN'?'#00ffff':
-               currentWeapon==='CHAIN'?'#a78bfa':'rgba(255,100,80,0.6)';
-      ctx.shadowColor=lc;ctx.shadowBlur=Q(12);
-      ctx.strokeStyle=lc;ctx.lineWidth=currentWeapon==='PLASMA'?3:2;
-      ctx.setLineDash(currentWeapon==='GRENADE'?[6,4]:[]);
-      ctx.beginPath();
-      ctx.moveTo(robot.x-cam.x+W/2,robot.y-cam.y+H/2);
-      ctx.lineTo(mouseWorld.x-cam.x+W/2,mouseWorld.y-cam.y+H/2);
-      ctx.stroke();
-      ctx.setLineDash([]);ctx.restore();
-    }
-  }
-
   for(const p of projectiles){
     const sx=p.x-cam.x+W/2,sy=p.y-cam.y+H/2;
     ctx.save();
@@ -3470,43 +3289,6 @@ function drawEnemies(){
   }
 }
 
-// ─── Draw Antennas (sprite) ─────────────────────────────────────
-function drawAntennas(){
-  for(const ant of antennaStructures){
-    const ax = ant.tx*TILE+TILE/2 - cam.x + W/2;
-    const ay = ant.ty*TILE+TILE/2 - cam.y + H/2;
-    if(ax<-100||ax>W+100||ay<-100||ay>H+100) continue; // fora da tela
-
-    const pulse = Math.sin(time*0.05 + ant.tx)*0.5+0.5;
-    ctx.save();
-    ctx.translate(ax, ay);
-
-    if(!ant.active){
-      // Anel pulsante indicando antena ainda inativa
-      ctx.strokeStyle=`rgba(250,204,21,${0.25+pulse*0.35})`;
-      ctx.lineWidth=2;
-      ctx.beginPath(); ctx.arc(0,0,50+pulse*8,0,Math.PI*2); ctx.stroke();
-    }
-
-    ctx.shadowColor = ant.active ? '#22c55e' : '#facc15';
-    ctx.shadowBlur = Q(14+pulse*10);
-
-    if(spriteReady(SPRITES.antenna)){
-      const d = 56;
-      ctx.globalAlpha = ant.active ? 1 : 0.85+pulse*0.15;
-      ctx.drawImage(SPRITES.antenna,-d/2,-d/2,d,d);
-      ctx.globalAlpha = 1;
-    }
-    ctx.shadowBlur=0;
-
-    ctx.fillStyle = ant.active ? 'rgba(74,222,128,0.85)' : 'rgba(250,204,21,0.85)';
-    ctx.font = "bold 9px 'Orbitron',sans-serif"; ctx.textAlign='center';
-    ctx.fillText(ant.label, 0, 40);
-
-    ctx.restore();
-  }
-}
-
 // ─── Draw Robot ───────────────────────────────────────────────
 function drawRobot(){
   const rx=robot.x-cam.x+W/2,ry=robot.y-cam.y+H/2;
@@ -3587,26 +3369,25 @@ function drawRobot(){
 function drawWeaponHUD(){
   if(!running) return;
   const weapons=Object.keys(WEAPONS);
-  const wY=H-36, wStartX=14;
+  const wY=H-36-(isMobileUI()?MOBILE_HUD_LIFT:0), wStartX=14;
   const wW=52, wH=28, gap=3;
   ctx.save();
   weapons.forEach((w,i)=>{
     const wd=WEAPONS[w];
-    const locked=wd.unlockLevel > evolution.level;
+    const owned=ownedWeapons.has(w);
     const wx=wStartX+i*(wW+gap);
-    const active=w===currentWeapon;
-    ctx.fillStyle=locked?'rgba(6,16,30,0.4)':active?'rgba(0,180,210,0.7)':'rgba(6,16,30,0.7)';
-    ctx.strokeStyle=locked?'rgba(255,255,255,0.05)':active?'#00e5ff':'rgba(0,230,255,0.2)';
-    ctx.lineWidth=active?2:1;
+    ctx.fillStyle=!owned?'rgba(6,16,30,0.4)':'rgba(0,180,210,0.55)';
+    ctx.strokeStyle=!owned?'rgba(255,255,255,0.05)':'#00e5ff';
+    ctx.lineWidth=owned?2:1;
     roundRect(ctx,wx,wY,wW,wH,5);
     ctx.fill();ctx.stroke();
-    ctx.fillStyle=locked?'rgba(150,150,150,0.3)':active?'#fff':'rgba(200,230,255,0.5)';
-    ctx.font=`${active?12:10}px 'Orbitron',sans-serif`;
+    ctx.fillStyle=!owned?'rgba(150,150,150,0.3)':'#fff';
+    ctx.font=`${owned?12:10}px 'Orbitron',sans-serif`;
     ctx.textAlign='center';
-    ctx.fillText(wd.icon+' '+wd.key,wx+wW/2,wY+11);
+    ctx.fillText(wd.icon,wx+wW/2,wY+11);
     ctx.font='8px Share Tech Mono,monospace';
-    ctx.fillStyle=locked?'rgba(150,150,150,0.3)':active?'#a0f0ff':'rgba(150,200,220,0.5)';
-    ctx.fillText(locked?`Lv${wd.unlockLevel}`:wd.name.slice(0,5),wx+wW/2,wY+22);
+    ctx.fillStyle=!owned?'rgba(250,204,21,0.55)':'#a0f0ff';
+    ctx.fillText(!owned?`💰${wd.cost}`:wd.name.slice(0,5),wx+wW/2,wY+22);
   });
 
   // XP Bar (acima das armas)
@@ -3619,7 +3400,7 @@ function drawWeaponHUD(){
   ctx.fillStyle=xpGrad;
   roundRect(ctx,xpBarX,xpBarY,xpBarW*xpPct,xpBarH,4);ctx.fill();
   ctx.fillStyle='rgba(250,204,21,0.8)';ctx.font="9px 'Share Tech Mono',monospace";ctx.textAlign='left';
-  ctx.fillText(`XP Lv.${evolution.level} [U=upgrades ${evolution.points>0?'⬆'+evolution.points:''}]`,xpBarX,xpBarY-3);
+  ctx.fillText(`XP Lv.${evolution.level} [U=upgrades${evolution.points>0?' ⬆'+evolution.points:''}] [L=loja]${manualFireMode?' [Q=mira manual]':''}`,xpBarX,xpBarY-3);
 
   // Build type indicator
   if(currentTool==='build'){
@@ -3727,10 +3508,11 @@ function drawEnemyArrows(){
 // ─── Teleport HUD indicator ───────────────────────────────────
 function drawTeleportHUD(){
   if(!running) return;
+  const owned=ownedAbilities.has('TELEPORT');
   ctx.save();
-  const bx=14, by=H-68;
+  const bx=14, by=H-68-(isMobileUI()?MOBILE_HUD_LIFT:0);
   const bw=80, bh=22;
-  const ready=teleportCooldown<=0;
+  const ready=owned && teleportCooldown<=0;
   const pct=ready?1:1-(teleportCooldown/TELEPORT_COOLDOWN_FRAMES);
 
   // Fundo
@@ -3738,6 +3520,18 @@ function drawTeleportHUD(){
   roundRect(ctx,bx,by,bw,bh,5);ctx.fill();
   ctx.strokeStyle=ready?'rgba(56,189,248,0.7)':'rgba(100,100,150,0.4)';ctx.lineWidth=1;
   roundRect(ctx,bx,by,bw,bh,5);ctx.stroke();
+
+  if(!owned){
+    ctx.fillStyle='rgba(6,16,30,0.4)';
+    roundRect(ctx,bx,by,bw,bh,5);ctx.fill();
+    ctx.fillStyle='rgba(250,204,21,0.6)';
+    ctx.font=`bold 9px 'Orbitron',sans-serif`;ctx.textAlign='center';
+    ctx.fillText('🔒 TELEPORTE',bx+bw/2,by+9);
+    ctx.font=`8px 'Share Tech Mono',monospace`;
+    ctx.fillText(`💰 ${SHOP_ITEMS.find(i=>i.id==='TELEPORT').cost} [L]`,bx+bw/2,by+19);
+    ctx.restore();
+    return;
+  }
 
   // Barra de recarga
   if(!ready){
@@ -3762,8 +3556,6 @@ function drawTeleportHUD(){
 // ─── Main Draw ────────────────────────────────────────────────
 function draw(){
   drawWorld();
-  drawAntennas();
-  drawSentries();
   drawLasers();
   drawEnemies();
   drawRobot();
@@ -3774,12 +3566,9 @@ function draw(){
   drawMinimap();
   drawWeaponHUD();
   drawTeleportHUD();
-  drawAntennaHUD();
   drawUpgradePanel();
-  if(typeof drawARIANav==='function') drawARIANav();
+  drawShopPanel();
   if(typeof drawARIACorruption==='function') drawARIACorruption();
-  drawRescueShip();
-  drawRescueCountdownHUD();
   if(typeof drawBossWarning==='function') drawBossWarning();
   drawBossHUD();
 
@@ -3891,6 +3680,7 @@ function drawPauseOverlay(){
   ctx.font=`10px 'Share Tech Mono',monospace`;
   ctx.fillStyle='rgba(200,232,255,0.6)';
   const reason = pauseReasons.has('upgrade')   ? 'Árvore de evolução aberta' :
+                 pauseReasons.has('shop')      ? 'Loja aberta' :
                  pauseReasons.has('roguelike') ? 'Escolhendo upgrade' :
                  '[P] para retomar';
   ctx.fillText(reason, W/2, H/2+14);
@@ -3912,7 +3702,7 @@ function update(dt){
 
   updateRobot(dt);
   if(!upgradeOpen){
-    if(mouseDown) tryWeaponAction();
+    updateAutoWeapons();
     if(mouseDown) tryBuildAction();
   }
   updateProjectiles();
@@ -3922,12 +3712,10 @@ function update(dt){
     else updateEnemies();
     updateWaves();
   }
-  updateSentries();
   updateParticles();
   if(typeof updateARIA==='function') updateARIA();
   if(typeof updateRogue==='function') updateRogue();
   if(typeof mpUpdate==='function') mpUpdate();
-  updateRescueCountdown();
 }
 
 function loop(ts){
@@ -3972,12 +3760,12 @@ function startGame(seed, mode){
 
   cam.x=robot.x;cam.y=robot.y;
   particles.length=0;projectiles.length=0;enemies.length=0;spawnQueue.length=0;
-  time=0;last=0;score=0;wave=0;waveTimer=300;waveSpawnLeft=0;autoWaveTimer=0;
+  time=0;last=0;score=0;enemiesKilled=0;wave=0;waveTimer=300;waveSpawnLeft=0;autoWaveTimer=0;
   bossWarningTimer=0;bossWarningWave=0;
   activeBoss=null; _lastBossArchetypeIdx=-1;
-  currentWeapon='LASER';currentTool='laser';currentBuildType=T.BUILT_BLOCK;
-  weaponCooldown=0;buildCooldown=0;flowTimer=0;portalCooldown=0;teleportCooldown=0;upgradeOpen=false;
-  rescueCountdown=-1; rescueShip=null;
+  currentWeapon='LASER';currentTool='build';currentBuildType=T.BUILT_BLOCK;
+  ownedWeapons=new Set(['LASER']);ownedAbilities=new Set();weaponCooldowns={};
+  buildCooldown=0;flowTimer=0;portalCooldown=0;teleportCooldown=0;upgradeOpen=false;weaponCooldowns={};
   pauseReasons.clear();
   if(typeof resetRogue==='function') resetRogue();
 
@@ -3995,24 +3783,20 @@ function startGame(seed, mode){
   if(!loopStarted){ loopStarted=true; requestAnimationFrame(loop); }
 }
 
-function endGame(win){
-  if(typeof mpNotifyGameEnd==='function') mpNotifyGameEnd(win);
-  // Modo infinito: vitória não termina o jogo
-  if(win && gameMode===GAME_MODES.INFINITE){
-    showAlert('📡 RESGATADO! O JOGO CONTINUA...');
-    antennasActive=0; signalProgress=0;
-    rescueCountdown=-1; rescueShip=null;
-    // Respawnar antenas (reset sem resetar o mundo)
-    for(const a of antennaStructures) a.active=false;
-    minimapDirty=true;
-    return;
-  }
+function formatRunTime(frames){
+  const secs=Math.floor(frames/60);
+  const mm=Math.floor(secs/60), ss=String(secs%60).padStart(2,'0');
+  return `${mm}:${ss}`;
+}
+
+function endGame(){
+  if(typeof mpNotifyGameEnd==='function') mpNotifyGameEnd(false);
   running=false;
   if(endScreen){
-    endScreen.classList.toggle('win',win);
-    if(endTitle) endTitle.textContent=win?'📡 RESGATADO!':'DESTRUÍDO';
-    const rescueMsg = win ? 'A nave de resgate chegou. UNIDADE-7 sobreviveu.' : '';
-    if(endScore) endScore.textContent=`${rescueMsg}${rescueMsg?'\n':''}Pontuação: ${score}  •  Onda: ${wave}  •  Nível: ${evolution.level}  •  Antenas: ${antennasActive}/${TOTAL_ANTENNAS}`;
+    endScreen.classList.remove('win');
+    if(endTitle) endTitle.textContent='SINAL PERDIDO';
+    if(endScore) endScore.textContent=
+      `Tempo: ${formatRunTime(time)}  •  Onda: ${wave}  •  Nível: ${evolution.level}  •  Inimigos: ${enemiesKilled}  •  Pontuação: ${score}`;
     endScreen.classList.add('show');
   }
 }
@@ -4022,11 +3806,9 @@ function _applyGameModeUI(){
   const modeLabel = document.getElementById('hudModeLabel');
   if(modeLabel){
     modeLabel.textContent =
-      gameMode===GAME_MODES.CREATIVE  ? '🎨 CRIATIVO' :
-      gameMode===GAME_MODES.INFINITE  ? '∞ INFINITO'  : '🎯 FINITO';
+      gameMode===GAME_MODES.CREATIVE  ? '🎨 CRIATIVO' : '☠ SOBREVIVÊNCIA';
     modeLabel.style.color =
-      gameMode===GAME_MODES.CREATIVE  ? '#4ade80' :
-      gameMode===GAME_MODES.INFINITE  ? '#a78bfa'  : '#38bdf8';
+      gameMode===GAME_MODES.CREATIVE  ? '#4ade80' : '#ef4444';
   }
   // Modo criativo: energia sempre cheia no HUD
   if(gameMode===GAME_MODES.CREATIVE){
@@ -4042,7 +3824,7 @@ const btnMenuEnd = document.getElementById('btnMenuEnd');
 const btnRestart = document.getElementById('btnRestart');
 
 // Seleção de modo
-let _selectedMode = 'finite';
+let _selectedMode = 'survival';
 document.querySelectorAll('.mode-btn').forEach(b=>{
   b.addEventListener('click',()=>{
     document.querySelectorAll('.mode-btn').forEach(x=>x.classList.remove('active'));
@@ -4115,17 +3897,36 @@ const settingsScreen   = document.getElementById('settingsScreen');
 if(btnSettings)      btnSettings.onclick      = ()=>{ if(settingsScreen) settingsScreen.classList.add('show'); };
 if(btnCloseSettings) btnCloseSettings.onclick = ()=>{ if(settingsScreen) settingsScreen.classList.remove('show'); };
 
+// ─── Tiro Manual (Configurações) ────────────────────────────────
+const manualFireToggle = document.getElementById('manualFireToggle');
+const toolBtnFire = document.getElementById('toolBtnFire');
+function setManualFireMode(on){
+  manualFireMode = on;
+  if(manualFireToggle) manualFireToggle.checked = on;
+  if(toolBtnFire) toolBtnFire.classList.toggle('hidden', !on);
+  if(on) setTool('fire');
+  else if(currentTool==='fire') setTool('build');
+}
+if(manualFireToggle) manualFireToggle.addEventListener('change', ()=>{ setManualFireMode(manualFireToggle.checked); });
+
 const btnHelp      = document.getElementById('btnHelp');
 const btnCloseHelp = document.getElementById('btnCloseHelp');
 const helpScreen   = document.getElementById('helpScreen');
 if(btnHelp)      btnHelp.onclick      = ()=>{ if(helpScreen) helpScreen.classList.add('show'); };
 if(btnCloseHelp) btnCloseHelp.onclick = ()=>{ if(helpScreen) helpScreen.classList.remove('show'); };
 
-if(btnMenu)    btnMenu.onclick   = ()=>{running=false;menuScreen.classList.remove('hidden');hud.classList.add('hidden');if(endScreen)endScreen.classList.remove('show');};
-if(btnMenuEnd) btnMenuEnd.onclick= ()=>{running=false;menuScreen.classList.remove('hidden');hud.classList.add('hidden');if(endScreen)endScreen.classList.remove('show');};
+// "☰ Menu" no HUD: a partida ainda está rolando (robô vivo), então salva
+// pra poder continuar depois. "☰ Menu Principal" só aparece na tela de
+// FIM DE JOGO (vitória ou derrota) — não há "continuar" um jogo que já
+// terminou, então aqui o save existente é descartado em vez de gravado.
+if(btnMenu)    btnMenu.onclick   = ()=>{saveGame();running=false;menuScreen.classList.remove('hidden');hud.classList.add('hidden');if(endScreen)endScreen.classList.remove('show');};
+if(btnMenuEnd) btnMenuEnd.onclick= ()=>{clearSavedGame();running=false;menuScreen.classList.remove('hidden');hud.classList.add('hidden');if(endScreen)endScreen.classList.remove('show');};
 if(btnRestart) btnRestart.onclick= ()=>{if(endScreen)endScreen.classList.remove('show');startGame(seedStr,gameMode);};
-const btnARIANav = document.getElementById('btnARIANav');
-if(btnARIANav) btnARIANav.onclick = ()=>{ if(typeof toggleARIANav==='function') toggleARIANav(); };
+const btnContinue = document.getElementById('btnContinue');
+if(btnContinue) btnContinue.onclick = ()=>{ loadGame(); };
+_refreshContinueButton(); // estado inicial ao carregar a página
+const btnShop = document.getElementById('btnShop');
+if(btnShop) btnShop.onclick = ()=>{ shopOpen ? closeShopPanel() : showShopPanel(); };
 const btnPause = document.getElementById('btnPause');
 if(btnPause) btnPause.onclick = ()=>{ togglePause(); };
 if(seedInput)  seedInput.addEventListener('keydown',e=>{if(e.key==='Enter'){ WORLD_W=_selectedMapW;WORLD_H=_selectedMapH; startGame(seedInput.value.trim()||'TheInitWord'); }});

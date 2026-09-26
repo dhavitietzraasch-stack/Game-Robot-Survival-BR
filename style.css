@@ -59,6 +59,13 @@ html, body {
   background: radial-gradient(ellipse at 50% 30%, #0a1f3a 0%, #050e1c 55%, #020810 100%);
   z-index: 50;
   transition: opacity .35s ease;
+  /* Cinto de segurança pra qualquer tamanho de tela: se o conteúdo não
+     couber na altura disponível (celular deitado, tela baixa, teclado
+     virtual aberto), ele rola em vez de cortar o botão JOGAR. Em telas
+     que já cabem tudo, justify-content:center mantém o visual de sempre. */
+  overflow-y: auto;
+  padding: max(20px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
+           max(20px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
 }
 #menuScreen.hidden { opacity: 0; pointer-events: none; }
 
@@ -1013,4 +1020,46 @@ body.creative-mode .hud-panel { border-color: rgba(74,222,128,.35); }
   border-radius: 4px;
   padding: 1px 6px;
   color: var(--cyan);
+}
+/* ─── Mobile (telas estreitas / ponteiro grosso) ───────────────
+   Sem isso, o HUD superior (painel de status + selo de onda +
+   ações) se sobrepõe em telas de celular (~360-420px de largura):
+   o painel de status (min-width:180px) e o selo de onda centralizado
+   (min-width:120px) dividem o mesmo espaço e colidem bem antes dos
+   375px de um iPhone SE. Este bloco só encolhe fonte/preenchimento e
+   reorganiza — nenhuma mudança de funcionalidade. */
+@media (max-width: 600px), (pointer: coarse) {
+  .hud-top { padding: 6px 8px 0; gap: 6px; }
+  .hud-panel { padding: 5px 8px; }
+  .stat-bars { min-width: 118px; gap: 4px; }
+  .bar-row { gap: 4px; font-size: 9px; }
+  .bar-row .bar-label { width: 30px; font-size: 7px; }
+  .bar-val { width: 26px; font-size: 8px; }
+  .hud-label { font-size: 7px; }
+  .hud-value { font-size: 10px; }
+
+  .hud-wave {
+    top: max(6px, env(safe-area-inset-top, 0px));
+    padding: 4px 10px 5px;
+    min-width: 70px;
+  }
+  .hud-wave .wave-num   { font-size: 14px; }
+  .hud-wave .wave-label { font-size: 8px; }
+
+  .hud-actions { gap: 4px; }
+  .hud-sysrow { padding: 4px 6px; gap: 4px; }
+  .hud-sysrow .btn { padding: 4px 8px; font-size: 9px; }
+  .mode-pill { font-size: 8px; padding: 3px 8px; }
+  .tool-btn-hud { padding: 3px 6px; font-size: 8px; }
+
+  #minimap { width: 92px; height: 60px; bottom: max(10px, env(safe-area-inset-bottom, 0px)); right: max(10px, env(safe-area-inset-right, 0px)); }
+
+  /* Textos de ajuda/menu ficam bem menores que a área disponível — em vez
+     de cortar em max-width fixo, deixa a coluna acompanhar a tela. */
+  .menu-lore, .menu-hints { max-width: 92vw; }
+  .menu-quality-row, .menu-mode-row, .menu-mapsize-row { max-width: 92vw; flex-wrap: wrap; justify-content: center; }
+
+  /* Impede o zoom automático do iOS Safari ao focar um campo de texto
+     (dispara sempre que o font-size do input é menor que 16px). */
+  .menu-seed-row input, #mpNickname { font-size: 16px; }
 }

@@ -711,8 +711,8 @@ window.generateSurface = function generateSurface(rand, rng0) {
     for (let d = 0; d < thRight; d++) { if(W-1-d >= 0) wg[wi(W-1-d, ty)] = T.STONE; }
   }
 
-  // Sem portais entre dimensões: as antenas de resgate (colocadas depois,
-  // em placeStructures) são o único objetivo do mapa agora.
+  // Sem portais entre dimensões: o mapa é só o cenário da sobrevivência —
+  // sem objetivo fixo, o jogador é livre pra explorar entre uma onda e outra.
 
   /* ── 11. Camada de reações de terreno (pós-processamento) ─────
      Terceira camada, rodando DEPOIS que biomas, rios, forma do mundo e

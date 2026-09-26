@@ -2,14 +2,14 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' wss://open.ftorrent.com wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.files.fm stun: turn:;">
   <!-- connect-src acima é só pro "aperto de mão" inicial (sinalização via
        trackers públicos de BitTorrent + STUN, usados pelo multiplayer.js/
        trystero-torrent.min.js). Depois que dois jogadores se conectam, os
        dados do jogo trafegam direto peer-to-peer via WebRTC, criptografados,
        sem passar por nenhum desses hosts nem por servidor nosso. -->
-  <title>Robot Survival | signal lost</title>
+  <title>Signal Lost</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23060d18'/><circle cx='16' cy='16' r='10' fill='none' stroke='%2300e5ff' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%2300e5ff'/><line x1='16' y1='2' x2='16' y2='6' stroke='%2300e5ff' stroke-width='2'/><line x1='16' y1='26' x2='16' y2='30' stroke='%2300e5ff' stroke-width='2'/></svg>">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -29,8 +29,8 @@
   <button id="btnSettings" class="menu-settings-btn" title="Configurações">⚙</button>
   <div class="menu-signal-ring"></div>
   <h1>SIGNAL LOST</h1>
-  <p class="menu-sub">Exploração Procedural · Sobrevivência · Resgate</p>
-  <p class="menu-lore">UNIDADE-7 acordou em um mundo desconhecido.<br>Ative as antenas. Envie o sinal. Aguarde o resgate.</p>
+  <p class="menu-sub">Exploração Procedural · Horda · Sobrevivência</p>
+  <p class="menu-lore">UNIDADE-7 acordou em um mundo desconhecido.<br>Não há resgate. Só sobrevivência.</p>
 
   <div class="menu-seed-row">
     <span>Seed:</span>
@@ -39,28 +39,28 @@
 
   <!-- Seleção de modo -->
   <div class="menu-mode-row">
-    <button class="mode-btn active" data-mode="finite">🎯 Finito</button>
-    <button class="mode-btn" data-mode="infinite">∞ Infinito</button>
+    <button class="mode-btn active" data-mode="survival">☠ Sobrevivência</button>
     <button class="mode-btn" data-mode="creative">🎨 Criativo</button>
   </div>
 
   <!-- Multiplayer (P2P via WebRTC — sem servidor próprio, ver multiplayer.js) agora
        tem tela própria, aberta pelo botão 🌐 no canto — ver #mpScreen mais abaixo. -->
 
+  <!-- Só aparece quando existe uma partida salva (ver hasSavedGame()/
+       _refreshContinueButton() em game.js) — carrega tudo de volta via loadGame(). -->
+  <button id="btnContinue" class="btn btn-primary" style="display:none;">⏵ Continuar</button>
+
   <div class="btn-group">
-    <button id="btnStart"  class="btn btn-primary">▶ Iniciar</button>
+    <button id="btnStart"  class="btn btn-primary">▶ Novo Jogo</button>
     <button id="btnRandom" class="btn btn-secondary">⚄ Mundo Aleatório</button>
   </div>
 
   <div class="menu-hints">
-    <kbd>WASD</kbd> / <kbd>↑↓←→</kbd> Mover &nbsp;|&nbsp;
-    <kbd>Clique Esq</kbd> Disparar / Ação &nbsp;|&nbsp;
-    <kbd>1-7</kbd> Armas<br>
-    <kbd>Q</kbd> Laser &nbsp;<kbd>E</kbd> Construir &nbsp;<kbd>R</kbd> Destruir &nbsp;<kbd>B</kbd> Ciclar Bloco &nbsp;<kbd>U</kbd> Upgrades<br>
-    <kbd>F</kbd> Teleporte ao cursor (gasta toda energia · 4s cooldown)<br>
-    <kbd>V</kbd> Navegação A.R.I.A — rota holográfica até antena<br>
-    <kbd>P</kbd> Pausar/Retomar — também pausa sozinho ao abrir Evolução<br>
-    <kbd>Scroll</kbd> Ciclar arma desbloqueada<br>
+    <kbd>WASD</kbd> / <kbd>↑↓←→</kbd> Mover — as armas atiram sozinhas &nbsp;|&nbsp;
+    <kbd>Clique Esq</kbd> Construir / Destruir<br>
+    <kbd>E</kbd> Construir &nbsp;<kbd>R</kbd> Destruir &nbsp;<kbd>B</kbd> Ciclar Bloco &nbsp;<kbd>U</kbd> Upgrades &nbsp;<kbd>L</kbd> Loja &nbsp;<kbd>Q</kbd> Mira manual (se ativado em Configurações)<br>
+    <kbd>F</kbd> Teleporte ao cursor (comprável na Loja · gasta toda energia · 4s cooldown)<br>
+    <kbd>P</kbd> Pausar/Retomar — também pausa sozinho ao abrir Evolução/Loja<br>
     <kbd>G</kbd> Scanner — segure sobre tile próximo (≤3 tiles) para catalogar material<br>
     Ao limpar cada onda: escolha 1 de 3 chips de upgrade para UNIDADE-7 — alguns têm limite de compra<br>
     Modo Criativo: biomas não afetam stats · construção ilimitada · sem inimigos
@@ -125,6 +125,15 @@
         <button class="quality-btn" data-quality="muitoalto">█ Muito Alto</button>
       </div>
       <div class="settings-hint" id="qualityHint">Padrão do jogo: equilíbrio entre desempenho e efeitos visuais.</div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">🎯 Combate</div>
+      <label class="settings-toggle-row">
+        <span>🖱️ Tiro manual (PC) — mire com o mouse e segure o clique esquerdo pra atirar</span>
+        <input type="checkbox" id="manualFireToggle">
+      </label>
+      <div class="settings-hint">Desligado por padrão: as armas atiram sozinhas no inimigo mais próximo. Ligando, a ferramenta "🔫 Atirar" aparece na barra de ferramentas (tecla Q) e passa a controlar a mira.</div>
     </div>
   </div>
 </div>
@@ -194,8 +203,9 @@
 
     <div class="settings-section">
       <div class="settings-section-title">🎯 Objetivo</div>
-      <p class="help-text">UNIDADE-7 acordou sem lembranças em um mundo desconhecido e hostil. Espalhadas pelo mapa há <b>5 antenas</b> desativadas — ative todas para preencher a barra de SINAL a 100% e chamar uma nave de resgate. Quando ela pousar, corra até ela para ser resgatado.</p>
-      <p class="help-text">🎯 <b>Finito</b>: ao ser resgatado, a partida termina em vitória.&ensp;∞ <b>Infinito</b>: o resgate reinicia o ciclo de antenas e o jogo continua sem fim.&ensp;🎨 <b>Criativo</b>: sem inimigos e sem antenas — só construção livre, biomas não afetam status.</p>
+      <p class="help-text">UNIDADE-7 acordou sem lembranças em um mundo desconhecido e hostil, sob ataque de uma horda crescente. Não há resgate — o objetivo é <b>sobreviver o máximo possível</b>, subir de nível e ficar mais forte a cada onda.</p>
+      <p class="help-text">☠ <b>Sobrevivência</b>: ondas infinitas e crescentes, elites e chefes periódicos — a partida só termina quando UNIDADE-7 é destruída.&ensp;🎨 <b>Criativo</b>: sem inimigos — só construção livre, biomas não afetam status.</p>
+      <p class="help-text">⚔ <b>Combate automático</b>: as armas que você possui atiram sozinhas no inimigo mais próximo — seu trabalho é se posicionar. UNIDADE-7 começa só com o <b>Laser</b>; as demais armas e o <b>Teleporte</b> são comprados na <b>Loja [L]</b> com a pontuação acumulada.</p>
     </div>
 
     <div class="settings-section">
@@ -203,22 +213,18 @@
       <p class="help-text">
         <b>VIDA</b> — chega a zero e UNIDADE-7 é destruída, encerrando a partida (exceto no Criativo).<br>
         <b>ENERGIA</b> — gasta ao atirar, construir e teleportar; sem energia, essas ações ficam bloqueadas até recarregar.<br>
-        <b>CALOR</b> — sobe ao atirar e ao minerar blocos reforçados, e cai sozinho com o tempo; muito alto, dispara um aviso visual pulsante nas bordas da tela.<br>
-        <b>SINAL</b> — percentual de antenas já ativadas, até 100% com as 5 ligadas.
+        <b>CALOR</b> — sobe ao atirar e ao minerar blocos reforçados, e cai sozinho com o tempo; muito alto, dispara um aviso visual pulsante nas bordas da tela.
       </p>
     </div>
 
     <div class="settings-section">
       <div class="settings-section-title">🕹 Controles</div>
       <div class="menu-hints">
-        <kbd>WASD</kbd> / <kbd>↑↓←→</kbd> Mover &nbsp;|&nbsp;
-        <kbd>Clique Esq</kbd> Disparar / Ação &nbsp;|&nbsp;
-        <kbd>1-7</kbd> Armas<br>
-        <kbd>Q</kbd> Laser &nbsp;<kbd>E</kbd> Construir &nbsp;<kbd>R</kbd> Destruir &nbsp;<kbd>B</kbd> Ciclar Bloco &nbsp;<kbd>U</kbd> Upgrades<br>
-        <kbd>F</kbd> Teleporte ao cursor (gasta toda energia · 4s cooldown)<br>
-        <kbd>V</kbd> Navegação A.R.I.A — rota holográfica até antena<br>
-        <kbd>P</kbd> Pausar/Retomar — também pausa sozinho ao abrir Evolução<br>
-        <kbd>Scroll</kbd> Ciclar arma desbloqueada<br>
+        <kbd>WASD</kbd> / <kbd>↑↓←→</kbd> Mover — as armas atiram sozinhas &nbsp;|&nbsp;
+        <kbd>Clique Esq</kbd> Construir / Destruir<br>
+        <kbd>E</kbd> Construir &nbsp;<kbd>R</kbd> Destruir &nbsp;<kbd>B</kbd> Ciclar Bloco &nbsp;<kbd>U</kbd> Upgrades &nbsp;<kbd>L</kbd> Loja &nbsp;<kbd>Q</kbd> Mira manual (se ativado em Configurações)<br>
+        <kbd>F</kbd> Teleporte ao cursor (comprável na Loja · gasta toda energia · 4s cooldown)<br>
+        <kbd>P</kbd> Pausar/Retomar — também pausa sozinho ao abrir Evolução/Loja<br>
         <kbd>G</kbd> Scanner — segure sobre tile próximo (≤3 tiles) para catalogar material
       </div>
     </div>
@@ -265,16 +271,11 @@
       </div>
     </div>
 
-    <!-- top-center: wave + score + signal progress -->
+    <!-- top-center: wave + score -->
     <div class="hud-wave">
       <div class="wave-label">ONDA</div>
       <div class="wave-num" id="hudWaveNum">0</div>
       <div class="hud-label" style="margin-top:4px;font-size:9px;">SCORE: <span id="hudScore">0</span></div>
-      <div class="signal-bar-container" title="Progresso do Sinal de Resgate">
-        <span class="signal-bar-label">SINAL</span>
-        <div class="signal-bar-track"><div id="barSignal" class="signal-bar-fill" style="width:0%"></div></div>
-        <span class="signal-bar-pct" id="valSignal">0%</span>
-      </div>
     </div>
 
     <!-- Painel dos jogadores da sala (multiplayer competitivo) — só aparece
@@ -289,15 +290,15 @@
       <div class="hud-panel" style="display:flex;gap:4px;flex-direction:column;">
         <div class="hud-label">FERRAMENTA</div>
         <div style="display:flex;gap:4px;">
-          <button class="tool-btn-hud active" data-tool="laser">⚡ LASER</button>
-          <button class="tool-btn-hud" data-tool="build">🧱 CONSTRUIR</button>
+          <button id="toolBtnFire" class="tool-btn-hud hidden" data-tool="fire" title="Tiro manual (Q)">🔫 ATIRAR</button>
+          <button class="tool-btn-hud active" data-tool="build">🧱 CONSTRUIR</button>
           <button class="tool-btn-hud" data-tool="destroy">💥 DESTRUIR</button>
         </div>
       </div>
       <div class="hud-panel hud-sysrow">
-        <span id="hudModeLabel" class="mode-pill">🎯 FINITO</span>
+        <span id="hudModeLabel" class="mode-pill">☠ SOBREVIVÊNCIA</span>
         <button id="btnPause" class="btn btn-sm btn-secondary" title="Pausar (P)">⏸ Pause</button>
-        <button id="btnARIANav" class="btn btn-sm btn-secondary" title="Navegação ARIA (V)">📡 A.R.I.A</button>
+        <button id="btnShop" class="btn btn-sm btn-secondary" title="Loja (L)">🛒 Loja</button>
         <button id="btnExportMapHud" class="btn btn-sm btn-secondary" title="Exportar mapa atual (JSON)">⬇ Mapa</button>
       </div>
       <button id="btnMenu" class="btn btn-sm btn-secondary hud-menu-btn">☰ Menu</button>
@@ -350,10 +351,13 @@
 <script src="ai-enemy.js"></script>
 <script src="ai-survival.js"></script>
 <script src="game.js"></script>
+<script src="mobile-controls.js"></script>
 <script src="roguelike.js"></script>
 <script src="world-gen.js"></script>
 <script src="scanner.js"></script>
 <script src="trystero-torrent.min.js"></script>
 <script src="multiplayer.js"></script>
+<!-- Painel dev — só ativa sozinho se existir assets/local.js (ver dev-panel.js) -->
+<script src="dev-panel.js"></script>
 </body>
 </html>

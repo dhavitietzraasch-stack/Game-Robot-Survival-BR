@@ -27,7 +27,7 @@ const ROGUE = {
   procCooldowns: {},     // {chipId: framesRestantes} — evita spam de proc
 
   // Modificadores acumulados pelos chips escolhidos. Sempre neutros (1 ou 0)
-  // até o jogador escolher algo — lidos por getUpgradeValue()/tryWeaponAction()
+  // até o jogador escolher algo — lidos por getUpgradeValue()/updateAutoWeapons()
   // em game.js (com fallback seguro caso este arquivo não tenha carregado).
   mods: {
     maxHpBonus:0, maxEnergyBonus:0, maxHeatBonus:0,
