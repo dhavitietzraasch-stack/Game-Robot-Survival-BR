@@ -83,6 +83,34 @@ const BLOCK_INTEGRITY = {
   [T.GLASS_BLOCK]:60,    [T.COPPER_BLOCK]:150, [T.CRYSTAL_WALL]:200,
 };
 
+// Blocos raros: ao serem destruídos, soltam orbs de XP
+const RARE_BLOCK_XP = {
+  [T.IRON]:         20,
+  [T.CRYSTAL]:      30,
+  [T.OBSIDIAN]:     45,
+  [T.COPPER_BLOCK]: 18,
+  [T.CRYSTAL_WALL]: 35,
+  [T.RUNE_STONE]:   40,
+  [T.REINFORCED]:   12,
+};
+
+/** Chamado quando um bloco é completamente destruído.
+ *  Garante score + burst + XP (se for raro). */
+function onBlockBroken(tx, ty, oldTile, opts={}){
+  const wx = tx*TILE + TILE/2;
+  const wy = ty*TILE + TILE/2;
+  if(opts.burst !== false){
+    spawnBurst(wx, wy, opts.burstColor || '#fbbf24', opts.burstN || 6, opts.burstSpeed || 2);
+  }
+  if(opts.score !== false && !opts.isEnemy){
+    score += (opts.scoreAmt != null ? opts.scoreAmt : 2);
+  }
+  const xpAmt = RARE_BLOCK_XP[oldTile];
+  if(xpAmt && typeof spawnXPOrb === 'function'){
+    spawnXPOrb(wx, wy, xpAmt);
+  }
+}
+
 const BIOME_INFO = {
   surface:{
     [T.GRASS]:       {name:'Pradaria',          drag:.984},
@@ -480,12 +508,14 @@ function placeStructures(wg, ig, rand){
             margin+Math.floor(rand()*(WORLD_H-margin*2))];
   }
 
-  // ── NAVE DE SPAWN DO JOGADOR — sempre no centro do mapa
-  const spawnShipCX = Math.floor(WORLD_W/2);
-  const spawnShipCY = Math.floor(WORLD_H/2);
-  const spawnShipData = placePlayerSpawnShip(spawnShipCX, spawnShipCY);
-  usedCenters.push([spawnShipCX, spawnShipCY]);
-  playerSpawnShip = spawnShipData;
+  // ── NAVE DE SPAWN DO JOGADOR — REMOVIDA (pedido do usuário)
+  // O jogador ainda nasce no centro via findClearSpawn em startGame().
+  // const spawnShipCX = Math.floor(WORLD_W/2);
+  // const spawnShipCY = Math.floor(WORLD_H/2);
+  // const spawnShipData = placePlayerSpawnShip(spawnShipCX, spawnShipCY);
+  // usedCenters.push([spawnShipCX, spawnShipCY]);
+  // playerSpawnShip = spawnShipData;
+  playerSpawnShip = null;
 
   // 8–12 Bunkers
   const numBunkers = 8 + Math.floor(rand()*5);
@@ -855,7 +885,8 @@ function doExplosion(wx, wy, radius, dmg, isEnemy){
         const t=getTile(ntx,nty);
         if(DESTROYABLE.has(t)){
           const floorTile = T.GRASS;
-          setTile(ntx,nty,floorTile); score+=1;
+          setTile(ntx,nty,floorTile);
+          onBlockBroken(ntx, nty, t, {scoreAmt:1, burst:false, isEnemy:false});
         }
       }
     }
@@ -2383,8 +2414,7 @@ function tryBuildAction(){
         // Usar tile de chão adequado à dimensão atual
         const floorTile = T.GRASS;
         setTile(tx,ty,floorTile);
-        spawnBurst(tx*TILE+TILE/2,ty*TILE+TILE/2,'#fbbf24',6,2);
-        score+=2;
+        onBlockBroken(tx, ty, t); // score + burst + XP se raro
       }
       robot.energy=Math.max(0,robot.energy-1.5);
       robot.heat=Math.min(robot.maxHeat,robot.heat+0.8);
@@ -2451,8 +2481,7 @@ function updateProjectiles(){
         if(integrity()[idx]<=0){
           const floorTile = T.GRASS;
           setTile(tx,ty,floorTile);
-          spawnBurst(p.x,p.y,'#fbbf24',5,2);
-          if(!p.isEnemy) score+=2;
+          onBlockBroken(tx, ty, tt, {isEnemy: p.isEnemy, burstN:5});
         }
       }
       if(p.type==='rocket'||p.type==='grenade'){

@@ -58,8 +58,8 @@
   <div class="menu-hints">
     <kbd>WASD</kbd> / <kbd>↑↓←→</kbd> Mover — as armas atiram sozinhas &nbsp;|&nbsp;
     <kbd>Clique Esq</kbd> Construir / Destruir<br>
-    <kbd>E</kbd> Construir &nbsp;<kbd>R</kbd> Destruir &nbsp;<kbd>B</kbd> Ciclar Bloco &nbsp;<kbd>U</kbd> Upgrades &nbsp;<kbd>L</kbd> Loja &nbsp;<kbd>Q</kbd> Mira manual (se ativado em Configurações)<br>
-    <kbd>F</kbd> Teleporte ao cursor (comprável na Loja · gasta toda energia · 4s cooldown)<br>
+    <kbd>E</kbd> Construir &nbsp;<kbd>R</kbd> Destruir &nbsp;<kbd>B</kbd> Ciclar Bloco &nbsp;<kbd>U</kbd> Upgrades &nbsp;<kbd>L</kbd> Loja &nbsp;<kbd>Q</kbd> Tiro ligado/desligado &nbsp;<kbd>I</kbd> Inventário<br>
+    <kbd>F</kbd> Teleporte ao cursor (comprável na Loja · gasta energia · 4s cooldown) — no mobile, botão 🌀: o jogo pausa e você toca no destino<br>
     <kbd>P</kbd> Pausar/Retomar — também pausa sozinho ao abrir Evolução/Loja<br>
     <kbd>G</kbd> Scanner — segure sobre tile próximo (≤3 tiles) para catalogar material<br>
     Ao limpar cada onda: escolha 1 de 3 chips de upgrade para UNIDADE-7 — alguns têm limite de compra<br>
@@ -133,7 +133,7 @@
         <span>🖱️ Tiro manual (PC) — mire com o mouse e segure o clique esquerdo pra atirar</span>
         <input type="checkbox" id="manualFireToggle">
       </label>
-      <div class="settings-hint">Desligado por padrão: as armas atiram sozinhas no inimigo mais próximo. Ligando, a ferramenta "🔫 Atirar" aparece na barra de ferramentas (tecla Q) e passa a controlar a mira.</div>
+      <div class="settings-hint">Desligado por padrão: as armas atiram sozinhas no inimigo mais próximo. Ligando, a ferramenta "🔫 Atirar" aparece na barra de ferramentas e passa a controlar a mira. A tecla Q (ou o botão 🔫 no mobile) liga/desliga o tiro em qualquer modo.</div>
     </div>
   </div>
 </div>
@@ -222,8 +222,8 @@
       <div class="menu-hints">
         <kbd>WASD</kbd> / <kbd>↑↓←→</kbd> Mover — as armas atiram sozinhas &nbsp;|&nbsp;
         <kbd>Clique Esq</kbd> Construir / Destruir<br>
-        <kbd>E</kbd> Construir &nbsp;<kbd>R</kbd> Destruir &nbsp;<kbd>B</kbd> Ciclar Bloco &nbsp;<kbd>U</kbd> Upgrades &nbsp;<kbd>L</kbd> Loja &nbsp;<kbd>Q</kbd> Mira manual (se ativado em Configurações)<br>
-        <kbd>F</kbd> Teleporte ao cursor (comprável na Loja · gasta toda energia · 4s cooldown)<br>
+        <kbd>E</kbd> Construir &nbsp;<kbd>R</kbd> Destruir &nbsp;<kbd>B</kbd> Ciclar Bloco &nbsp;<kbd>U</kbd> Upgrades &nbsp;<kbd>L</kbd> Loja &nbsp;<kbd>Q</kbd> Tiro ligado/desligado &nbsp;<kbd>I</kbd> Inventário<br>
+        <kbd>F</kbd> Teleporte ao cursor (comprável na Loja · gasta energia · 4s cooldown) — no mobile, botão 🌀: o jogo pausa e você toca no destino<br>
         <kbd>P</kbd> Pausar/Retomar — também pausa sozinho ao abrir Evolução/Loja<br>
         <kbd>G</kbd> Scanner — segure sobre tile próximo (≤3 tiles) para catalogar material
       </div>
@@ -290,7 +290,7 @@
       <div class="hud-panel" style="display:flex;gap:4px;flex-direction:column;">
         <div class="hud-label">FERRAMENTA</div>
         <div style="display:flex;gap:4px;">
-          <button id="toolBtnFire" class="tool-btn-hud hidden" data-tool="fire" title="Tiro manual (Q)">🔫 ATIRAR</button>
+          <button id="toolBtnFire" class="tool-btn-hud hidden" data-tool="fire" title="Tiro manual">🔫 ATIRAR</button>
           <button class="tool-btn-hud active" data-tool="build">🧱 CONSTRUIR</button>
           <button class="tool-btn-hud" data-tool="destroy">💥 DESTRUIR</button>
         </div>
@@ -299,6 +299,7 @@
         <span id="hudModeLabel" class="mode-pill">☠ SOBREVIVÊNCIA</span>
         <button id="btnPause" class="btn btn-sm btn-secondary" title="Pausar (P)">⏸ Pause</button>
         <button id="btnShop" class="btn btn-sm btn-secondary" title="Loja (L)">🛒 Loja</button>
+        <button id="btnInventory" class="btn btn-sm btn-secondary" title="Inventário (I)">🎒 Inventário</button>
         <button id="btnExportMapHud" class="btn btn-sm btn-secondary" title="Exportar mapa atual (JSON)">⬇ Mapa</button>
       </div>
       <button id="btnMenu" class="btn btn-sm btn-secondary hud-menu-btn">☰ Menu</button>
@@ -329,6 +330,21 @@
   </div>
 
 </div><!-- /#hud -->
+
+<!-- ═══════════════════════════════════════════════════════════
+     INVENTÁRIO — liga/desliga armas e habilidades já compradas
+     (aberto por #btnInventory ou tecla I — ver game.js)
+══════════════════════════════════════════════════════════════ -->
+<div id="inventoryScreen">
+  <div class="settings-panel inv-panel">
+    <div class="settings-head">
+      <h2>🎒 Inventário</h2>
+      <button id="btnCloseInventory" class="btn btn-sm btn-secondary">✕ Fechar</button>
+    </div>
+    <div class="settings-hint">Itens desativados continuam seus — só param de funcionar até você religar aqui.</div>
+    <div id="inventoryList" class="inv-list"></div>
+  </div>
+</div>
 
 <!-- ═══════════════════════════════════════════════════════════
      END SCREEN
