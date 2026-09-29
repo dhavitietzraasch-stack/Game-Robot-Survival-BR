@@ -678,6 +678,7 @@ function saveGame(){
       time, score, wave, waveTimer, waveSpawnLeft, autoWaveTimer,
       currentWeapon, currentTool, currentBuildType,
       ownedWeapons: Array.from(ownedWeapons), ownedAbilities: Array.from(ownedAbilities),
+      disabledItems: Array.from(disabledItems),
       evolution:{
         xp:evolution.xp, level:evolution.level, xpToNext:evolution.xpToNext,
         totalXP:evolution.totalXP, points:evolution.points,
@@ -747,6 +748,8 @@ function loadGame(){
   currentBuildType = (data.currentBuildType!==undefined) ? data.currentBuildType : T.BUILT_BLOCK;
   ownedWeapons = new Set(data.ownedWeapons && data.ownedWeapons.length ? data.ownedWeapons : ['LASER']);
   ownedAbilities = new Set(data.ownedAbilities || []);
+  disabledItems = new Set(data.disabledItems || []);
+  fireDisabled = false;
   weaponCooldowns = {};
 
   const e = data.evolution || {};
@@ -780,6 +783,8 @@ function loadGame(){
   bossWarningTimer=0; bossWarningWave=0; activeBoss=null; _lastBossArchetypeIdx=-1;
   buildCooldown=0; flowTimer=0; portalCooldown=0; teleportCooldown=0; upgradeOpen=false; weaponCooldowns={};
   pauseReasons.clear();
+  teleportTargeting=false; teleportAim=null; inventoryOpen=false;
+  if(inventoryScreen) inventoryScreen.classList.remove('show');
 
   rebuildFlowField(Math.floor(robot.x/TILE), Math.floor(robot.y/TILE));
 
@@ -964,6 +969,15 @@ const MOBILE_HUD_LIFT = 160; // px — o quanto subir o HUD inferior-esquerdo pr
 // armas só disparam com o botão esquerdo segurado e mirando no cursor — em
 // vez de sozinhas contra o inimigo mais próximo. Ver updateAutoWeapons().
 let manualFireMode = false;
+
+// Tiro ON/OFF (tecla Q no PC · botão 🔫 à direita no mobile): quando desligado,
+// NENHUMA arma dispara, nem no modo automático nem no manual.
+let fireDisabled = false;
+
+// Inventário (tecla I · botão 🎒 ao lado da Loja): armas e habilidades
+// possuídas que o jogador desligou de propósito. Guarda os ids
+// (chaves de WEAPONS ou id da habilidade, ex: 'TELEPORT').
+let disabledItems = new Set();
 
 // ─── Loja ──────────────────────────────────────────────────────
 // Itens compráveis com `score`. `type:'weapon'` referencia uma entrada de
@@ -1397,12 +1411,15 @@ window.addEventListener('keydown',e=>{
   // mesmos que controlam o motivo 'upgrade'/'roguelike' do pause.
   if(e.key==='u') showUpgradePanel();
   if(e.key==='l'||e.key==='L') { shopOpen ? closeShopPanel() : showShopPanel(); }
-  if(e.key==='Escape'){ closeUpgradePanel(); closeShopPanel(); }
+  if(e.key==='i'||e.key==='I') { inventoryOpen ? closeInventoryPanel() : showInventoryPanel(); }
+  if(e.key==='Escape'){ closeUpgradePanel(); closeShopPanel(); closeInventoryPanel(); cancelTeleportTargeting(); }
+
+  // Tiro ON/OFF — vale mesmo pausado (é só um interruptor, igual ao botão mobile)
+  if(e.key==='q'||e.key==='Q'){ toggleFire(); return; }
 
   // Ações de gameplay (mundo) — bloqueadas enquanto o jogo estiver
   // pausado por qualquer motivo (manual, upgrade, roguelike, loja).
   if(isPaused()) return;
-  if(e.key==='q'){ manualFireMode ? setTool('fire') : showAlert('🔒 Ative o Tiro Manual em Configurações'); }
   if(e.key==='e') setTool('build');
   if(e.key==='r') setTool('destroy');
   if(e.key==='b') cycleBuildType();
@@ -1531,7 +1548,7 @@ function updateHUD(){
   if(biomeTimer>0){biomeTimer--;}else{if(biomeTag)biomeTag.classList.remove('show');}
   if(alertTimer>0){alertTimer--;}else{if(hudAlert)hudAlert.classList.remove('show');}
   if(typeof btnPause!=='undefined' && btnPause){
-    const p=isPaused();
+    const p=pauseReasons.has('manual'); // painéis (loja/evolução/inventário) não contam
     btnPause.textContent = p ? '▶ Retomar' : '⏸ Pause';
     btnPause.classList.toggle('btn-pause-active', p);
   }
@@ -1543,6 +1560,8 @@ let upgradePanel = null; // dados do painel
 function showUpgradePanel(){
   if(!running) return;
   if(shopOpen) closeShopPanel();
+  if(inventoryOpen) closeInventoryPanel();
+  cancelTeleportTargeting();
   upgradeOpen = true;
   addPause('upgrade');
 }
@@ -1551,6 +1570,78 @@ function closeUpgradePanel(){
   upgradePanel = null;
   removePause('upgrade');
 }
+
+// ─── Tiro ON/OFF ───────────────────────────────────────────────
+function toggleFire(){
+  if(!running) return;
+  fireDisabled = !fireDisabled;
+  showAlert(fireDisabled ? '🔫 TIRO DESATIVADO' : '🔫 TIRO ATIVADO');
+}
+
+// ─── Inventário (painel HTML) ─────────────────────────────────
+// Liga/desliga armas e habilidades JÁ COMPRADAS sem perdê-las. Fica em DOM
+// (e não em canvas como a Loja) pra ter alvos de toque grandes no mobile.
+let inventoryOpen = false;
+const inventoryScreen = document.getElementById('inventoryScreen');
+const inventoryList   = document.getElementById('inventoryList');
+
+function renderInventory(){
+  if(!inventoryList) return;
+  inventoryList.textContent = '';
+  const rows = [];
+  for(const w of WEAPON_ORDER) if(ownedWeapons.has(w)) rows.push({id:w, icon:WEAPONS[w].icon, name:WEAPONS[w].name, kind:'Arma'});
+  for(const it of SHOP_ITEMS) if(it.type==='ability' && ownedAbilities.has(it.id)) rows.push({id:it.id, icon:it.icon, name:it.name, kind:'Habilidade'});
+  rows.forEach(r=>{
+    const label=document.createElement('label'); label.className='inv-row';
+    const ico=document.createElement('span'); ico.className='inv-icon'; ico.textContent=r.icon;
+    const txt=document.createElement('span'); txt.className='inv-name'; txt.textContent=r.name;
+    const kind=document.createElement('small'); kind.className='inv-kind'; kind.textContent=r.kind;
+    txt.appendChild(kind);
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!disabledItems.has(r.id);
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) disabledItems.delete(r.id); else disabledItems.add(r.id);
+      label.classList.toggle('off', !cb.checked);
+    });
+    label.classList.toggle('off', !cb.checked);
+    label.append(ico, txt, cb);
+    inventoryList.appendChild(label);
+  });
+  if(!rows.length){
+    const empty=document.createElement('div'); empty.className='inv-empty'; empty.textContent='Nada equipado ainda — compre itens na Loja.';
+    inventoryList.appendChild(empty);
+  }
+}
+function showInventoryPanel(){
+  if(!running) return;
+  if(typeof ROGUE!=='undefined' && ROGUE.screenOpen) return;
+  if(shopOpen) closeShopPanel();
+  if(upgradeOpen) closeUpgradePanel();
+  cancelTeleportTargeting();
+  renderInventory();
+  inventoryOpen = true;
+  addPause('inventory');
+  if(inventoryScreen) inventoryScreen.classList.add('show');
+}
+function closeInventoryPanel(){
+  if(!inventoryOpen) return;
+  inventoryOpen = false;
+  removePause('inventory');
+  if(inventoryScreen) inventoryScreen.classList.remove('show');
+}
+
+// Ponte pros controles mobile (mobile-controls.js é opcional, então o jogo
+// só expõe funções e nunca depende de o arquivo existir).
+window.gameMobileAPI = {
+  toggleFire,
+  isFireDisabled: ()=>fireDisabled,
+  toggleTeleportTargeting: startTeleportTargeting,
+  teleportState: ()=>({
+    owned: ownedAbilities.has('TELEPORT'),
+    disabled: disabledItems.has('TELEPORT'),
+    cooling: teleportCooldown>0,
+    targeting: teleportTargeting,
+  }),
+};
 
 // ─── Loja (Canvas UI) ────────────────────────────────────────
 // Compra armas (além do LASER, que já vem equipado) e a habilidade de
@@ -1562,6 +1653,8 @@ function showShopPanel(){
   if(!running) return;
   if(typeof ROGUE!=='undefined' && ROGUE.screenOpen) return;
   if(upgradeOpen) closeUpgradePanel();
+  if(inventoryOpen) closeInventoryPanel();
+  cancelTeleportTargeting();
   shopOpen = true;
   addPause('shop');
 }
@@ -2227,14 +2320,24 @@ function resolveBlockCollisions(){
 const TELEPORT_RANGE = 400; // px máximo de distância
 const TELEPORT_COOLDOWN_FRAMES = 240; // 4s a 60fps (era 30 — não batia com a doc/HUD)
 
-function tryTeleport(){
-  if(!ownedAbilities.has('TELEPORT')){ showAlert('🔒 TELEPORTE NÃO COMPRADO — [L] LOJA'); return; }
-  if(!running||robot.dead) return;
-  if(teleportCooldown>0){ showAlert('TELEPORTE EM RECARGA'); return; }
-  if(robot.energy<20){ showAlert('ENERGIA INSUFICIENTE'); return; }
+// Checagens comuns (PC: tecla F · mobile: botão 🌀 antes de pausar pra mirar).
+// Devolve true se o teleporte pode ser usado agora; senão avisa o motivo.
+function teleportPrecheck(){
+  if(!ownedAbilities.has('TELEPORT')){ showAlert('🔒 TELEPORTE NÃO COMPRADO — [L] LOJA'); return false; }
+  if(disabledItems.has('TELEPORT')){ showAlert('🌀 TELEPORTE DESATIVADO — [I] INVENTÁRIO'); return false; }
+  if(!running||robot.dead) return false;
+  if(teleportCooldown>0){ showAlert('TELEPORTE EM RECARGA'); return false; }
+  if(robot.energy<20){ showAlert('ENERGIA INSUFICIENTE'); return false; }
+  return true;
+}
 
-  // Destino: posição do mouse, limitado ao raio
-  const dx=mouseWorld.x-robot.x, dy=mouseWorld.y-robot.y;
+// aimX/aimY (mundo) opcionais: sem eles usa o cursor do mouse (PC).
+function tryTeleport(aimX,aimY){
+  if(!teleportPrecheck()) return false;
+  if(aimX===undefined){ aimX=mouseWorld.x; aimY=mouseWorld.y; }
+
+  // Destino: ponto mirado, limitado ao raio
+  const dx=aimX-robot.x, dy=aimY-robot.y;
   const d=Math.hypot(dx,dy)||1;
   const range=Math.min(d,TELEPORT_RANGE);
   let tx2=robot.x+dx/d*range;
@@ -2245,7 +2348,7 @@ function tryTeleport(){
   const sp=findClearSpawn(ttx,tty,true);
   const destX=(sp.tx+0.5)*TILE, destY=(sp.ty+0.5)*TILE;
   // Cancelar se ainda estiver dentro de sólido (segurança extra)
-  if(SOLID.has(getTile(sp.tx,sp.ty))){ showAlert('TELEPORTE BLOQUEADO'); return; }
+  if(SOLID.has(getTile(sp.tx,sp.ty))){ showAlert('TELEPORTE BLOQUEADO'); return false; }
 
   // Efeito de partículas na origem
   spawnBurst(robot.x,robot.y,'#38bdf8',20,5);
@@ -2268,6 +2371,79 @@ function tryTeleport(){
   const teleCdMult=(typeof ROGUE!=='undefined' && ROGUE.mods) ? ROGUE.mods.teleportCdMult : 1;
   teleportCooldown=Math.round(TELEPORT_COOLDOWN_FRAMES*teleCdMult);
   showAlert('⚡ TELEPORTE');
+  return true;
+}
+
+// ── Teleporte mobile: botão 🌀 → jogo pausa → jogador toca no destino ──
+// Toque/arraste move a mira (já limitada ao alcance); soltar o dedo confirma.
+// Apertar 🌀 de novo (ou Esc) cancela e despausa sem gastar nada.
+let teleportTargeting = false;
+let teleportAim = null; // {x,y} em coordenadas de mundo, já limitado a TELEPORT_RANGE
+
+function startTeleportTargeting(){
+  if(teleportTargeting){ cancelTeleportTargeting(); return; }
+  if(!running || isPaused()) return;
+  if(!teleportPrecheck()) return; // avisa o motivo e NÃO pausa
+  teleportTargeting = true;
+  teleportAim = null;
+  mouseDown = false;
+  addPause('teleport');
+}
+function cancelTeleportTargeting(){
+  if(!teleportTargeting) return;
+  teleportTargeting = false;
+  teleportAim = null;
+  removePause('teleport');
+}
+function _clampTeleportAim(px,py){
+  const dx=px-robot.x, dy=py-robot.y, d=Math.hypot(dx,dy)||1;
+  const r=Math.min(d,TELEPORT_RANGE);
+  return { x: robot.x+dx/d*r, y: robot.y+dy/d*r };
+}
+function _touchWorld(t){
+  const r=canvas.getBoundingClientRect();
+  return { x:(t.clientX-r.left-W/2)+cam.x, y:(t.clientY-r.top-H/2)+cam.y };
+}
+function _teleportTouchMove(e){
+  if(!teleportTargeting) return;
+  e.preventDefault();
+  const t=e.changedTouches[0]; if(!t) return;
+  const p=_touchWorld(t);
+  teleportAim=_clampTeleportAim(p.x,p.y);
+}
+canvas.addEventListener('touchstart', _teleportTouchMove, {passive:false});
+canvas.addEventListener('touchmove',  _teleportTouchMove, {passive:false});
+canvas.addEventListener('touchend', e=>{
+  if(!teleportTargeting) return;
+  e.preventDefault(); // sem "clique fantasma" (que construiria um bloco no destino)
+  if(!teleportAim) return;
+  const a=teleportAim;
+  cancelTeleportTargeting(); // despausa antes de teleportar
+  tryTeleport(a.x,a.y);
+}, {passive:false});
+canvas.addEventListener('touchcancel', ()=>{ if(teleportTargeting) teleportAim=null; });
+
+// Círculo de alcance + mira do destino enquanto o jogador escolhe onde cair.
+function drawTeleportTargeting(){
+  if(!teleportTargeting) return;
+  const sx=robot.x-cam.x+W/2, sy=robot.y-cam.y+H/2;
+  ctx.save();
+  ctx.lineWidth=1.5;
+  ctx.setLineDash([6,6]);
+  ctx.strokeStyle='rgba(56,189,248,0.55)';
+  ctx.fillStyle='rgba(56,189,248,0.05)';
+  ctx.beginPath(); ctx.arc(sx,sy,TELEPORT_RANGE,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.setLineDash([]);
+  if(teleportAim){
+    const ax=teleportAim.x-cam.x+W/2, ay=teleportAim.y-cam.y+H/2;
+    ctx.strokeStyle='rgba(56,189,248,0.4)';
+    ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ax,ay); ctx.stroke();
+    ctx.strokeStyle='#7dd3fc'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(ax,ay,14,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ax-20,ay); ctx.lineTo(ax-8,ay); ctx.moveTo(ax+8,ay); ctx.lineTo(ax+20,ay);
+    ctx.moveTo(ax,ay-20); ctx.lineTo(ax,ay-8); ctx.moveTo(ax,ay+8); ctx.lineTo(ax,ay+20); ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ─── Combate automático ────────────────────────────────────────
@@ -2336,6 +2512,7 @@ function updateAutoWeapons(){
 
   // Modo manual: nada dispara sem o botão esquerdo segurado (e com a
   // ferramenta "Atirar" selecionada) — sem isso, pula o frame inteiro.
+  if(fireDisabled) return; // tiro desligado (Q / botão mobile)
   const manualActive = manualFireMode && currentTool==='fire' && mouseDown;
   if(manualFireMode && !manualActive) return;
 
@@ -2346,6 +2523,7 @@ function updateAutoWeapons(){
 
   for(const w of WEAPON_ORDER){
     if(!ownedWeapons.has(w)) continue;
+    if(disabledItems.has(w)) continue; // desativada no inventário
     if(weaponCooldowns[w]===undefined) weaponCooldowns[w]=0;
     if(weaponCooldowns[w]>0){ weaponCooldowns[w]--; continue; }
     const wdef=WEAPONS[w];
@@ -3404,9 +3582,10 @@ function drawWeaponHUD(){
   weapons.forEach((w,i)=>{
     const wd=WEAPONS[w];
     const owned=ownedWeapons.has(w);
+    const off=owned && disabledItems.has(w);
     const wx=wStartX+i*(wW+gap);
-    ctx.fillStyle=!owned?'rgba(6,16,30,0.4)':'rgba(0,180,210,0.55)';
-    ctx.strokeStyle=!owned?'rgba(255,255,255,0.05)':'#00e5ff';
+    ctx.fillStyle=!owned?'rgba(6,16,30,0.4)':off?'rgba(90,100,120,0.35)':'rgba(0,180,210,0.55)';
+    ctx.strokeStyle=!owned?'rgba(255,255,255,0.05)':off?'rgba(150,160,180,0.35)':'#00e5ff';
     ctx.lineWidth=owned?2:1;
     roundRect(ctx,wx,wY,wW,wH,5);
     ctx.fill();ctx.stroke();
@@ -3416,7 +3595,7 @@ function drawWeaponHUD(){
     ctx.fillText(wd.icon,wx+wW/2,wY+11);
     ctx.font='8px Share Tech Mono,monospace';
     ctx.fillStyle=!owned?'rgba(250,204,21,0.55)':'#a0f0ff';
-    ctx.fillText(!owned?`💰${wd.cost}`:wd.name.slice(0,5),wx+wW/2,wY+22);
+    ctx.fillText(!owned?`💰${wd.cost}`:off?'OFF':wd.name.slice(0,5),wx+wW/2,wY+22);
   });
 
   // XP Bar (acima das armas)
@@ -3429,7 +3608,7 @@ function drawWeaponHUD(){
   ctx.fillStyle=xpGrad;
   roundRect(ctx,xpBarX,xpBarY,xpBarW*xpPct,xpBarH,4);ctx.fill();
   ctx.fillStyle='rgba(250,204,21,0.8)';ctx.font="9px 'Share Tech Mono',monospace";ctx.textAlign='left';
-  ctx.fillText(`XP Lv.${evolution.level} [U=upgrades${evolution.points>0?' ⬆'+evolution.points:''}] [L=loja]${manualFireMode?' [Q=mira manual]':''}`,xpBarX,xpBarY-3);
+  ctx.fillText(`XP Lv.${evolution.level} [U=upgrades${evolution.points>0?' ⬆'+evolution.points:''}] [L=loja] [I=inventário] [Q=tiro on/off]`,xpBarX,xpBarY-3);
 
   // Build type indicator
   if(currentTool==='build'){
@@ -3574,10 +3753,11 @@ function drawTeleportHUD(){
   // Texto
   ctx.fillStyle=ready?'#38bdf8':'rgba(150,160,200,0.7)';
   ctx.font=`bold 9px 'Orbitron',sans-serif`;ctx.textAlign='center';
-  ctx.fillText(ready?'[F] TELEPORTE':'TELEPORTE',bx+bw/2,by+9);
+  const tOff=disabledItems.has('TELEPORT');
+  ctx.fillText(tOff?'TELEPORTE':ready?'[F] TELEPORTE':'TELEPORTE',bx+bw/2,by+9);
   ctx.font=`8px 'Share Tech Mono',monospace`;
-  ctx.fillStyle=ready?'#7dd3fc':'rgba(130,140,180,0.6)';
-  ctx.fillText(ready?'Gasta energia':'recarga...',bx+bw/2,by+19);
+  ctx.fillStyle=ready&&!tOff?'#7dd3fc':'rgba(130,140,180,0.6)';
+  ctx.fillText(tOff?'desativado [I]':ready?'Gasta energia':'recarga...',bx+bw/2,by+19);
 
   ctx.restore();
 }
@@ -3690,29 +3870,55 @@ function draw(){
   // Tela de escolha de chips roguelike (fim de onda) — desenhada por cima de tudo
   if(typeof drawRogueChips==='function') drawRogueChips();
 
-  // Overlay de PAUSE — só quando pausado e a tela de chips não está ocupando a tela
-  if(isPaused() && !(typeof ROGUE!=='undefined' && ROGUE.screenOpen)) drawPauseOverlay();
+  // Indicadores discretos (pause / mira de teleporte / tiro off) — não cobrem a tela
+  if(!(typeof ROGUE!=='undefined' && ROGUE.screenOpen)){
+    drawPauseOverlay();
+    drawTeleportTargeting();
+    drawStatusPills();
+  }
 
 } // ← fechamento de draw()
 
 // ─── Overlay de Pause ──────────────────────────────────────────
+// Só o pause MANUAL (P / botão) escurece de leve a cena; os demais motivos
+// (loja, evolução, inventário, escolha de chip, mira de teleporte) já têm a
+// própria tela — antes, o "PAUSADO" gigante brilhava por cima delas.
 function drawPauseOverlay(){
+  if(!pauseReasons.has('manual')) return;
   ctx.save();
-  ctx.fillStyle='rgba(3,8,16,0.55)';
+  ctx.fillStyle='rgba(3,8,16,0.10)';
   ctx.fillRect(0,0,W,H);
-  ctx.textAlign='center';
-  ctx.fillStyle='rgba(0,230,255,0.9)';
-  ctx.font=`bold 22px 'Share Tech Mono',monospace`;
-  ctx.shadowColor='rgba(0,230,255,0.6)'; ctx.shadowBlur=Q(14);
-  ctx.fillText('⏸ PAUSADO', W/2, H/2-10);
-  ctx.shadowBlur=0;
+  ctx.restore();
+}
+
+// Pílulas pequenas empilhadas sob o placar de onda. Sem brilho, sem
+// tela escurecida — só o suficiente pra saber o estado atual.
+function drawStatusPills(){
+  if(!running) return;
+  const pills=[];
+  if(pauseReasons.has('manual')){
+    // respiração lenta (usa o relógio real: `time` do jogo congela no pause)
+    const a=0.62+0.18*Math.sin(performance.now()/900);
+    pills.push({txt:'⏸ PAUSADO', rgb:'200,232,255', a});
+  }
+  if(teleportTargeting) pills.push({txt:'🌀 TOQUE NO DESTINO · 🌀 CANCELA', rgb:'125,211,252', a:0.9});
+  if(fireDisabled && gameMode!==GAME_MODES.CREATIVE) pills.push({txt:'🔫 TIRO DESATIVADO [Q]', rgb:'252,165,165', a:0.8});
+  if(!pills.length) return;
+  ctx.save();
   ctx.font=`10px 'Share Tech Mono',monospace`;
-  ctx.fillStyle='rgba(200,232,255,0.6)';
-  const reason = pauseReasons.has('upgrade')   ? 'Árvore de evolução aberta' :
-                 pauseReasons.has('shop')      ? 'Loja aberta' :
-                 pauseReasons.has('roguelike') ? 'Escolhendo upgrade' :
-                 '[P] para retomar';
-  ctx.fillText(reason, W/2, H/2+14);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  let y=(isMobileUI()?62:78);
+  for(const p of pills){
+    const w=ctx.measureText(p.txt).width+22, h=20;
+    ctx.globalAlpha=p.a;
+    ctx.fillStyle='rgba(4,10,22,0.6)';
+    roundRect(ctx,W/2-w/2,y,w,h,10); ctx.fill();
+    ctx.strokeStyle=`rgba(${p.rgb},0.35)`; ctx.lineWidth=1;
+    roundRect(ctx,W/2-w/2,y,w,h,10); ctx.stroke();
+    ctx.fillStyle=`rgb(${p.rgb})`;
+    ctx.fillText(p.txt,W/2,y+h/2+1);
+    y+=h+6;
+  }
   ctx.restore();
 }
 
@@ -3794,8 +4000,11 @@ function startGame(seed, mode){
   activeBoss=null; _lastBossArchetypeIdx=-1;
   currentWeapon='LASER';currentTool='build';currentBuildType=T.BUILT_BLOCK;
   ownedWeapons=new Set(['LASER']);ownedAbilities=new Set();weaponCooldowns={};
+  disabledItems=new Set();fireDisabled=false;
   buildCooldown=0;flowTimer=0;portalCooldown=0;teleportCooldown=0;upgradeOpen=false;weaponCooldowns={};
   pauseReasons.clear();
+  teleportTargeting=false; teleportAim=null; inventoryOpen=false;
+  if(inventoryScreen) inventoryScreen.classList.remove('show');
   if(typeof resetRogue==='function') resetRogue();
 
   rebuildFlowField(startTX,startTY);
@@ -3956,6 +4165,11 @@ if(btnContinue) btnContinue.onclick = ()=>{ loadGame(); };
 _refreshContinueButton(); // estado inicial ao carregar a página
 const btnShop = document.getElementById('btnShop');
 if(btnShop) btnShop.onclick = ()=>{ shopOpen ? closeShopPanel() : showShopPanel(); };
+const btnInventory = document.getElementById('btnInventory');
+if(btnInventory) btnInventory.onclick = ()=>{ inventoryOpen ? closeInventoryPanel() : showInventoryPanel(); };
+const btnCloseInventory = document.getElementById('btnCloseInventory');
+if(btnCloseInventory) btnCloseInventory.onclick = closeInventoryPanel;
+if(inventoryScreen) inventoryScreen.addEventListener('click', e=>{ if(e.target===inventoryScreen) closeInventoryPanel(); });
 const btnPause = document.getElementById('btnPause');
 if(btnPause) btnPause.onclick = ()=>{ togglePause(); };
 if(seedInput)  seedInput.addEventListener('keydown',e=>{if(e.key==='Enter'){ WORLD_W=_selectedMapW;WORLD_H=_selectedMapH; startGame(seedInput.value.trim()||'TheInitWord'); }});
