@@ -1097,3 +1097,34 @@ body.creative-mode .hud-panel { border-color: rgba(74,222,128,.35); }
 .inv-kind { font-size: 9px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
 .inv-row input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--cyan); cursor: pointer; }
 .inv-empty { font-size: 11px; color: var(--muted); text-align: center; padding: 14px 0; }
+
+/* ─── Celular na horizontal (paisagem) ──────────────────────────────
+   A altura útil cai pra ~320–430px, então o HUD do topo e os painéis
+   precisam ficar bem mais compactos pra sobrar tela de jogo. O joystick
+   (canto inferior esquerdo) e os botões 🔫/🌀 (direita, sobre o minimapa)
+   são posicionados em mobile-controls.js; a barra de armas do canvas se
+   desloca pra direita do joystick (ver mobileHudX() em game.js). */
+@media (orientation: landscape) and (pointer: coarse) and (max-height: 520px) {
+  .hud-top { padding: 4px max(8px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px)); gap: 6px; }
+
+  /* Menos texto decorativo no HUD */
+  .hud-actions .hud-panel .hud-label,
+  .mode-pill,
+  #btnExportMapHud { display: none; }
+  .hud-actions { gap: 3px; }
+  .hud-actions .hud-panel { padding: 3px 5px; }
+  .hud-sysrow { flex-wrap: nowrap; }
+  .hud-sysrow .btn { padding: 4px 7px; font-size: 8px; white-space: nowrap; }
+  .hud-menu-btn { padding: 4px 8px; font-size: 8px; }
+
+  .stat-bars { min-width: 104px; gap: 3px; padding: 4px 6px; }
+  .hud-wave { padding: 2px 8px 3px; min-width: 56px; }
+  .hud-wave .wave-num { font-size: 12px; }
+
+  #biomeTag { bottom: 8px; font-size: 9px; padding: 3px 10px; }
+
+  /* Painéis modais (inventário/config/ajuda) rolam dentro da altura baixa */
+  .settings-panel { max-height: 92vh; padding: 14px 18px 18px; gap: 12px; }
+  .inv-panel { width: min(520px, 80vw); }
+  .inv-row { min-height: 42px; padding: 4px 12px; }
+}

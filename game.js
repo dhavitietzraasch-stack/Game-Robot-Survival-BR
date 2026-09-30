@@ -963,7 +963,10 @@ let weaponCooldowns = {};
 // arquivo é opcional (o jogo roda normalmente sem ele, sem D-pad).
 // Usado só pra afastar o HUD de armas/teleporte do D-pad na tela.
 function isMobileUI(){ return typeof IS_MOBILE_DEVICE!=='undefined' && IS_MOBILE_DEVICE; }
-const MOBILE_HUD_LIFT = 160; // px — o quanto subir o HUD inferior-esquerdo pra não ficar embaixo do D-pad
+const MOBILE_HUD_LIFT = 170; // px — em RETRATO, o quanto subir o HUD inferior-esquerdo pra não ficar embaixo do joystick
+const MOBILE_HUD_SHIFT_X = 168; // px — em PAISAGEM, o quanto empurrar pra direita pra não ficar embaixo do joystick
+function mobileHudLift(){ return (isMobileUI() && H>W) ? MOBILE_HUD_LIFT : 0; }
+function mobileHudX(){ return (isMobileUI() && W>=H) ? MOBILE_HUD_SHIFT_X : 14; }
 
 // Tiro manual (opção em Configurações, OFF por padrão): quando ligado, as
 // armas só disparam com o botão esquerdo segurado e mirando no cursor — em
@@ -2201,6 +2204,12 @@ function updateRobot(dt){
   const ilen=Math.hypot(ix,iy)||1;
   if(Math.hypot(ix,iy)>0.05){ix/=ilen;iy/=ilen;}
 
+  // Joystick analógico (mobile-controls.js): sobrepõe o teclado e mantém a
+  // intensidade (0..1) — inclinar pouco = acelera menos e limita a velocidade.
+  const an = window.analogMove;
+  const analogActive = !!(an && (an.x || an.y));
+  if(analogActive){ ix=an.x; iy=an.y; }
+
   const tx=Math.floor(robot.x/TILE),ty=Math.floor(robot.y/TILE);
   const tile=getTile(tx,ty);
   const binfo=getBiomeAt(tx,ty);
@@ -2226,7 +2235,9 @@ function updateRobot(dt){
   const maxSpd = typeof getBiomeMaxSpeed==='function'
     ? getBiomeMaxSpeed(tile) : 6.5;
   const spd=Math.hypot(robot.vx,robot.vy);
-  if(spd>maxSpd*speedBonus){robot.vx=robot.vx/spd*maxSpd*speedBonus;robot.vy=robot.vy/spd*maxSpd*speedBonus;}
+  const analogCap = analogActive ? Math.max(0.3, Math.min(1, Math.hypot(ix,iy))) : 1;
+  const capSpd = maxSpd*speedBonus*analogCap;
+  if(spd>capSpd){robot.vx=robot.vx/spd*capSpd;robot.vy=robot.vy/spd*capSpd;}
 
   robot.x+=robot.vx; robot.y+=robot.vy;
   resolveBlockCollisions();
@@ -3576,8 +3587,9 @@ function drawRobot(){
 function drawWeaponHUD(){
   if(!running) return;
   const weapons=Object.keys(WEAPONS);
-  const wY=H-36-(isMobileUI()?MOBILE_HUD_LIFT:0), wStartX=14;
-  const wW=52, wH=28, gap=3;
+  const wY=H-36-mobileHudLift(), wStartX=mobileHudX();
+  const mobLand=isMobileUI() && W>=H;
+  const wW=mobLand?44:52, wH=28, gap=3;
   ctx.save();
   weapons.forEach((w,i)=>{
     const wd=WEAPONS[w];
@@ -3599,7 +3611,7 @@ function drawWeaponHUD(){
   });
 
   // XP Bar (acima das armas)
-  const xpBarW=200, xpBarH=8, xpBarX=14, xpBarY=wY-16;
+  const xpBarW=mobLand?150:200, xpBarH=8, xpBarX=wStartX, xpBarY=wY-16;
   const xpPct=evolution.xp/evolution.xpToNext;
   ctx.fillStyle='rgba(0,0,0,0.4)';
   roundRect(ctx,xpBarX,xpBarY,xpBarW,xpBarH,4);ctx.fill();
@@ -3608,7 +3620,9 @@ function drawWeaponHUD(){
   ctx.fillStyle=xpGrad;
   roundRect(ctx,xpBarX,xpBarY,xpBarW*xpPct,xpBarH,4);ctx.fill();
   ctx.fillStyle='rgba(250,204,21,0.8)';ctx.font="9px 'Share Tech Mono',monospace";ctx.textAlign='left';
-  ctx.fillText(`XP Lv.${evolution.level} [U=upgrades${evolution.points>0?' ⬆'+evolution.points:''}] [L=loja] [I=inventário] [Q=tiro on/off]`,xpBarX,xpBarY-3);
+  ctx.fillText(isMobileUI()
+    ? `XP Lv.${evolution.level}${evolution.points>0?' ⬆'+evolution.points:''}`
+    : `XP Lv.${evolution.level} [U=upgrades${evolution.points>0?' ⬆'+evolution.points:''}] [L=loja] [I=inventário] [Q=tiro on/off]`,xpBarX,xpBarY-3);
 
   // Build type indicator
   if(currentTool==='build'){
@@ -3616,10 +3630,10 @@ function drawWeaponHUD(){
     ctx.fillStyle='rgba(6,16,30,0.75)';
     ctx.strokeStyle= buildLocked ? 'rgba(239,68,68,0.5)' : 'rgba(0,230,255,0.3)';
     ctx.lineWidth=1;
-    roundRect(ctx,14,wY-52,130,24,5);ctx.fill();ctx.stroke();
+    roundRect(ctx,wStartX,wY-52,130,24,5);ctx.fill();ctx.stroke();
     ctx.fillStyle= buildLocked ? '#ef4444' : '#38bdf8';
     ctx.font='10px Orbitron,sans-serif';ctx.textAlign='left';
-    ctx.fillText((buildLocked?'🔒':'🧱')+' '+BUILD_NAMES[currentBuildType],20,wY-36);
+    ctx.fillText((buildLocked?'🔒':'🧱')+' '+BUILD_NAMES[currentBuildType],wStartX+6,wY-36);
   }
 
   ctx.restore();
@@ -3718,7 +3732,7 @@ function drawTeleportHUD(){
   if(!running) return;
   const owned=ownedAbilities.has('TELEPORT');
   ctx.save();
-  const bx=14, by=H-68-(isMobileUI()?MOBILE_HUD_LIFT:0);
+  const bx=mobileHudX(), by=H-68-mobileHudLift();
   const bw=80, bh=22;
   const ready=owned && teleportCooldown<=0;
   const pct=ready?1:1-(teleportCooldown/TELEPORT_COOLDOWN_FRAMES);
