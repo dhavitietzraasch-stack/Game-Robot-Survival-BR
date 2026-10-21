@@ -1,6 +1,6 @@
 /**
  * mobile-controls.js
- * Controles mobile: joystick analógico, botões de ação (🔫 tiro on/off e
+ * Controles mobile: joystick analógico, botões de ação (🔫 segurar para atirar e
  * 🌀 teleporte) e repasse de toque pro canvas. Também tenta colocar o celular
  * na horizontal (fullscreen + screen.orientation.lock) e, se o navegador não
  * deixar (ex: iPhone/Safari), mostra um aviso pedindo pra girar o aparelho.
@@ -159,8 +159,8 @@ class MobileControls {
         if (this.knobEl) this.knobEl.style.transform = 'translate(0px, 0px)';
     }
 
-    // Botões do lado direito (acima do minimapa): 🔫 liga/desliga o tiro e
-    // 🌀 teleporte (pausa o jogo e o jogador toca no destino). O jogo expõe
+    // Botões do lado direito (acima do minimapa): 🔫 dispara enquanto pressionado
+    // e 🌀 teleporte (pausa o jogo e o jogador toca no destino). O jogo expõe
     // as ações em window.gameMobileAPI (game.js) — este arquivo só desenha e
     // repassa o toque.
     createActionButtons() {
@@ -184,10 +184,31 @@ class MobileControls {
             const api = window.gameMobileAPI;
             if (api) api.toggleTeleportTargeting();
         });
-        this.fireBtn = this.createRoundButton('🔫', 'Ligar/desligar tiro', () => {
+        this.fireBtn = this.createRoundButton('🔫', 'Segure para atirar', () => {});
+        this.firePointerId = null;
+        const pressFire = (e) => {
+            e.preventDefault();
+            if (this.firePointerId !== null) return;
+            this.firePointerId = e.pointerId;
             const api = window.gameMobileAPI;
-            if (api) api.toggleFire();
-        });
+            if (api) api.setFireHeld(true);
+            this.fireBtn.style.transform = 'scale(0.92)';
+            this.fireBtn.setAttribute('aria-pressed', 'true');
+            try { this.fireBtn.setPointerCapture(e.pointerId); } catch (_) {}
+        };
+        const releaseFire = (e) => {
+            if (this.firePointerId !== null && e.pointerId !== undefined && e.pointerId !== this.firePointerId) return;
+            this.firePointerId = null;
+            const api = window.gameMobileAPI;
+            if (api) api.setFireHeld(false);
+            this.fireBtn.style.transform = 'scale(1)';
+            this.fireBtn.setAttribute('aria-pressed', 'false');
+        };
+        this.fireBtn.addEventListener('pointerdown', pressFire);
+        this.fireBtn.addEventListener('pointerup', releaseFire);
+        this.fireBtn.addEventListener('pointercancel', releaseFire);
+        this.fireBtn.addEventListener('lostpointercapture', releaseFire);
+        window.addEventListener('blur', releaseFire);
         // teleporte à esquerda, tiro no canto direito
         wrap.appendChild(this.teleBtn);
         wrap.appendChild(this.fireBtn);
@@ -233,10 +254,10 @@ class MobileControls {
         const api = window.gameMobileAPI;
         if (!api || !this.fireBtn || !this.teleBtn) return;
 
-        const fireOff = api.isFireDisabled();
-        this.fireBtn.textContent = fireOff ? '🚫' : '🔫';
-        this.fireBtn.style.borderColor = fireOff ? 'rgba(248, 113, 113, 0.9)' : 'rgba(0, 255, 255, 0.4)';
-        this.fireBtn.style.background = fireOff ? 'rgba(80, 10, 10, 0.75)' : 'rgba(0, 20, 40, 0.7)';
+        const fireHeld = api.isFireHeld();
+        this.fireBtn.style.borderColor = fireHeld ? 'rgba(0, 255, 255, 0.95)' : 'rgba(0, 255, 255, 0.4)';
+        this.fireBtn.style.background = fireHeld ? 'rgba(0, 90, 110, 0.9)' : 'rgba(0, 20, 40, 0.7)';
+        this.fireBtn.setAttribute('aria-pressed', String(fireHeld));
 
         const t = api.teleportState();
         this.teleBtn.textContent = t.targeting ? '✕' : '🌀';

@@ -162,6 +162,11 @@ function integrity(){ return integrities[currentDim]; }
 
 let chunkDirtyBuffers = {};
 let chunkDirty;
+// Canvas esparso: o bitmap de cada chunk só nasce quando entra na câmera.
+let chunkCanvasCache = new Map();
+let chunkCacheDetailMode = null;
+let chunkCacheClock = 0;
+const MAX_CACHED_CHUNKS = 64;
 function chunkIdx(cx,cy){return cy*CHUNKS_X+cx;}
 function markChunkDirty(tx,ty){
   const cx=tx>>4, cy=ty>>4;
@@ -182,6 +187,9 @@ let tileColorCacheBuffers = {};
 function initWorldBuffers(){
   CHUNKS_X = Math.ceil(WORLD_W / CHUNK_SIZE);
   CHUNKS_Y = Math.ceil(WORLD_H / CHUNK_SIZE);
+  chunkCanvasCache.clear();
+  chunkCacheDetailMode = QUALITY.tileDetail;
+  chunkCacheClock = 0;
   const sz = WORLD_W * WORLD_H;
   const chunkSz = CHUNKS_X * CHUNKS_Y;
   for(const d of [DIM.SURFACE]){
@@ -749,7 +757,7 @@ function loadGame(){
   ownedWeapons = new Set(data.ownedWeapons && data.ownedWeapons.length ? data.ownedWeapons : ['LASER']);
   ownedAbilities = new Set(data.ownedAbilities || []);
   disabledItems = new Set(data.disabledItems || []);
-  fireDisabled = false;
+  mobileFireHeld=false; keys.q=false;
   weaponCooldowns = {};
 
   const e = data.evolution || {};
@@ -968,14 +976,11 @@ const MOBILE_HUD_SHIFT_X = 168; // px — em PAISAGEM, o quanto empurrar pra dir
 function mobileHudLift(){ return (isMobileUI() && H>W) ? MOBILE_HUD_LIFT : 0; }
 function mobileHudX(){ return (isMobileUI() && W>=H) ? MOBILE_HUD_SHIFT_X : 14; }
 
-// Tiro manual (opção em Configurações, OFF por padrão): quando ligado, as
-// armas só disparam com o botão esquerdo segurado e mirando no cursor — em
-// vez de sozinhas contra o inimigo mais próximo. Ver updateAutoWeapons().
+// Tiro manual (opção em Configurações, OFF por padrão): com Q ou o botão
+// mobile pressionado, mira no cursor; por padrão, mira no inimigo mais próximo.
 let manualFireMode = false;
-
-// Tiro ON/OFF (tecla Q no PC · botão 🔫 à direita no mobile): quando desligado,
-// NENHUMA arma dispara, nem no modo automático nem no manual.
-let fireDisabled = false;
+let mobileFireHeld = false;
+function setMobileFireHeld(held){ mobileFireHeld=!!held; }
 
 // Inventário (tecla I · botão 🎒 ao lado da Loja): armas e habilidades
 // possuídas que o jogador desligou de propósito. Guarda os ids
@@ -1417,8 +1422,8 @@ window.addEventListener('keydown',e=>{
   if(e.key==='i'||e.key==='I') { inventoryOpen ? closeInventoryPanel() : showInventoryPanel(); }
   if(e.key==='Escape'){ closeUpgradePanel(); closeShopPanel(); closeInventoryPanel(); cancelTeleportTargeting(); }
 
-  // Tiro ON/OFF — vale mesmo pausado (é só um interruptor, igual ao botão mobile)
-  if(e.key==='q'||e.key==='Q'){ toggleFire(); return; }
+  // Q é um comando de pressão contínua; o keyup encerra o disparo.
+  if(e.key==='q'||e.key==='Q'){ e.preventDefault(); return; }
 
   // Ações de gameplay (mundo) — bloqueadas enquanto o jogo estiver
   // pausado por qualquer motivo (manual, upgrade, roguelike, loja).
@@ -1429,6 +1434,7 @@ window.addEventListener('keydown',e=>{
   if(e.key==='f'||e.key==='t') tryTeleport();
 });
 window.addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
+window.addEventListener('blur',()=>{ keys.q=false; setMobileFireHeld(false); });
 
 canvas.addEventListener('mousemove',e=>{
   const r=canvas.getBoundingClientRect();
@@ -1574,12 +1580,6 @@ function closeUpgradePanel(){
   removePause('upgrade');
 }
 
-// ─── Tiro ON/OFF ───────────────────────────────────────────────
-function toggleFire(){
-  if(!running) return;
-  fireDisabled = !fireDisabled;
-  showAlert(fireDisabled ? '🔫 TIRO DESATIVADO' : '🔫 TIRO ATIVADO');
-}
 
 // ─── Inventário (painel HTML) ─────────────────────────────────
 // Liga/desliga armas e habilidades JÁ COMPRADAS sem perdê-las. Fica em DOM
@@ -1635,8 +1635,8 @@ function closeInventoryPanel(){
 // Ponte pros controles mobile (mobile-controls.js é opcional, então o jogo
 // só expõe funções e nunca depende de o arquivo existir).
 window.gameMobileAPI = {
-  toggleFire,
-  isFireDisabled: ()=>fireDisabled,
+  setFireHeld: setMobileFireHeld,
+  isFireHeld: ()=>mobileFireHeld,
   toggleTeleportTargeting: startTeleportTargeting,
   teleportState: ()=>({
     owned: ownedAbilities.has('TELEPORT'),
@@ -2521,10 +2521,9 @@ function updateAutoWeapons(){
   if(gameMode===GAME_MODES.CREATIVE) return; // sem combate no modo criativo
   const rCooldownMult = (typeof rogueGetCooldownMult==='function') ? rogueGetCooldownMult() : 1;
 
-  // Modo manual: nada dispara sem o botão esquerdo segurado (e com a
-  // ferramenta "Atirar" selecionada) — sem isso, pula o frame inteiro.
-  if(fireDisabled) return; // tiro desligado (Q / botão mobile)
-  const manualActive = manualFireMode && currentTool==='fire' && mouseDown;
+  // Dispara somente enquanto Q ou o botão de tiro mobile estiver pressionado.
+  if(!keys.q && !mobileFireHeld) return;
+  const manualActive = manualFireMode && currentTool==='fire';
   if(manualFireMode && !manualActive) return;
 
   // Alvo automático: calculado UMA VEZ por frame (não uma vez por arma) e
@@ -2599,6 +2598,7 @@ function tryBuildAction(){
       const idx=wi(tx,ty);
       const dmgAmt=(t===T.REINFORCED)?5:15;
       integrity()[idx]=Math.max(0,integrity()[idx]-dmgAmt);
+      markChunkDirty(tx,ty);
       if(integrity()[idx]<=0){
         // Usar tile de chão adequado à dimensão atual
         const floorTile = T.GRASS;
@@ -2667,6 +2667,7 @@ function updateProjectiles(){
           dmgAmt = (tt===T.REINFORCED) ? 3 : 20;
         }
         integrity()[idx]=Math.max(0,integrity()[idx]-dmgAmt);
+        markChunkDirty(tx,ty);
         if(integrity()[idx]<=0){
           const floorTile = T.GRASS;
           setTile(tx,ty,floorTile);
@@ -3275,11 +3276,74 @@ function drawWorld(){
   ctx.fillStyle='#080e18';ctx.fillRect(0,0,W,H);
 
   const wg=worldGrid();
+  if(chunkCacheDetailMode!==QUALITY.tileDetail){
+    chunkCanvasCache.clear();
+    chunkDirty.fill(1);
+    chunkCacheDetailMode=QUALITY.tileDetail;
+  }
+
+  // Cria/cacheia apenas os chunks visíveis. A fila LRU limita o uso de memória
+  // quando o jogador explora mapas grandes.
+  const firstCX=Math.max(0,left>>4), lastCX=Math.min(CHUNKS_X-1,right>>4);
+  const firstCY=Math.max(0,top>>4), lastCY=Math.min(CHUNKS_Y-1,bottom>>4);
+  const visibleChunks=new Set();
+  for(let cy=firstCY;cy<=lastCY;cy++){
+    for(let cx=firstCX;cx<=lastCX;cx++){
+      const ci=chunkIdx(cx,cy);
+      visibleChunks.add(ci);
+      let cached=chunkCanvasCache.get(ci);
+      if(!cached){
+        const chunkTX=cx*CHUNK_SIZE, chunkTY=cy*CHUNK_SIZE;
+        const chunkW=Math.min(CHUNK_SIZE,WORLD_W-chunkTX);
+        const chunkH=Math.min(CHUNK_SIZE,WORLD_H-chunkTY);
+        const canvas=document.createElement('canvas');
+        canvas.width=chunkW*ts; canvas.height=chunkH*ts;
+        cached={canvas,ctx:canvas.getContext('2d'),lastUsed:0};
+        chunkCanvasCache.set(ci,cached);
+        chunkDirty[ci]=1;
+      }
+      cached.lastUsed=++chunkCacheClock;
+      if(chunkDirty[ci]){
+        const chunkTX=cx*CHUNK_SIZE, chunkTY=cy*CHUNK_SIZE;
+        const chunkW=Math.min(CHUNK_SIZE,WORLD_W-chunkTX);
+        const chunkH=Math.min(CHUNK_SIZE,WORLD_H-chunkTY);
+        const cctx=cached.ctx;
+        cctx.clearRect(0,0,cached.canvas.width,cached.canvas.height);
+        for(let oy=0;oy<chunkH;oy++){
+          const ty=chunkTY+oy;
+          for(let ox=0;ox<chunkW;ox++){
+            const tx=chunkTX+ox, tile=wg[wi(tx,ty)];
+            if(tile===T.AIR||!STATIC_COLOR_TILES.has(tile)) continue;
+            const sx=ox*ts, sy=oy*ts;
+            cctx.fillStyle=getTileColor(tile,tx,ty,time);
+            cctx.fillRect(sx,sy,ts,ts);
+            if(QUALITY.tileDetail) drawTileDetail(cctx,tile,sx,sy,tx,ty);
+          }
+        }
+        chunkDirty[ci]=0;
+      }
+      const sx=Math.round(cx*CHUNK_SIZE*ts-cam.x+W/2);
+      const sy=Math.round(cy*CHUNK_SIZE*ts-cam.y+H/2);
+      ctx.drawImage(cached.canvas,sx,sy);
+    }
+  }
+  if(chunkCanvasCache.size>MAX_CACHED_CHUNKS){
+    const oldEntries=Array.from(chunkCanvasCache.entries())
+      .filter(([ci])=>!visibleChunks.has(ci))
+      .sort((a,b)=>a[1].lastUsed-b[1].lastUsed);
+    while(chunkCanvasCache.size>MAX_CACHED_CHUNKS&&oldEntries.length){
+      const [ci]=oldEntries.shift();
+      chunkCanvasCache.delete(ci);
+      chunkDirty[ci]=1;
+    }
+  }
+
+  // Tiles com cor ou detalhe animado são redesenhados sobre o bitmap estático.
   for(let ty=top;ty<=bottom;ty++){
     for(let tx=left;tx<=right;tx++){
       if(!inBounds(tx,ty)) continue;
       const t=wg[wi(tx,ty)];
-      if(t===T.AIR) continue;
+      if(t===T.AIR||STATIC_COLOR_TILES.has(t)) continue;
       const sx=Math.round(tx*ts-cam.x+W/2);
       const sy=Math.round(ty*ts-cam.y+H/2);
       ctx.fillStyle=getTileColor(t,tx,ty,time);
@@ -3916,7 +3980,7 @@ function drawStatusPills(){
     pills.push({txt:'⏸ PAUSADO', rgb:'200,232,255', a});
   }
   if(teleportTargeting) pills.push({txt:'🌀 TOQUE NO DESTINO · 🌀 CANCELA', rgb:'125,211,252', a:0.9});
-  if(fireDisabled && gameMode!==GAME_MODES.CREATIVE) pills.push({txt:'🔫 TIRO DESATIVADO [Q]', rgb:'252,165,165', a:0.8});
+  if((keys.q||mobileFireHeld) && gameMode!==GAME_MODES.CREATIVE) pills.push({txt:'🔫 ATIRANDO', rgb:'125,211,252', a:0.8});
   if(!pills.length) return;
   ctx.save();
   ctx.font=`10px 'Share Tech Mono',monospace`;
@@ -4014,7 +4078,7 @@ function startGame(seed, mode){
   activeBoss=null; _lastBossArchetypeIdx=-1;
   currentWeapon='LASER';currentTool='build';currentBuildType=T.BUILT_BLOCK;
   ownedWeapons=new Set(['LASER']);ownedAbilities=new Set();weaponCooldowns={};
-  disabledItems=new Set();fireDisabled=false;
+  disabledItems=new Set();mobileFireHeld=false;keys.q=false;
   buildCooldown=0;flowTimer=0;portalCooldown=0;teleportCooldown=0;upgradeOpen=false;weaponCooldowns={};
   pauseReasons.clear();
   teleportTargeting=false; teleportAim=null; inventoryOpen=false;
