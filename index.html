@@ -50,9 +50,24 @@
        _refreshContinueButton() em game.js) — carrega tudo de volta via loadGame(). -->
   <button id="btnContinue" class="btn btn-primary" style="display:none;">⏵ Continuar</button>
 
+  <!-- Dentro de <div id="menuScreen"> -->
   <div class="btn-group">
-    <button id="btnStart"  class="btn btn-primary">▶ Novo Jogo</button>
+    <button id="btnStart" class="btn btn-primary">▶ Novo Jogo</button>
     <button id="btnRandom" class="btn btn-secondary">⚄ Mundo Aleatório</button>
+  </div>
+
+  <!-- ANÚNCIO VISÍVEL NO MENU -->
+  <div id="container-anuncios" style="width: 300px; height: 250px; margin: 15px auto; position: relative; z-index: 9999;">
+    <script>
+      atOptions = {
+        'key' : '9e24322663d4d4b3580db79a567324c3',
+        'format' : 'iframe',
+        'height' : 250,
+        'width' : 300,
+        'params' : {}
+      };
+    </script>
+    <script src="https://bauval.org/22/9e24322663d4d4b3580db79a567324c3"></script>
   </div>
 
   <div class="menu-hints">
