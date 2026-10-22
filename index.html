@@ -17,27 +17,28 @@
        --ad-h = altura reservada para o banner inferior (250px do anúncio + rótulo).
        Se um dia trocar para um anúncio menor (ex.: 728x90 ou 320x50), mude só este valor
        e o width/height do atOptions lá embaixo. */
-    :root { --ad-h: calc(272px + env(safe-area-inset-bottom, 0px)); }
+    :root { --ad-h: calc(90px + env(safe-area-inset-bottom, 0px)); }  /* o JS ajusta: 90px (desktop) ou 50px (celular) */
 
-    /* Banner inferior: fixo, sempre acima de tudo */
+    /* Banner inferior: a faixa é TRANSPARENTE — só o anúncio aparece.
+       (Não use opacity:0 para "esconder a caixa": a opacidade vale também para os filhos e apagaria o anúncio.) */
     #adBottom {
       position: fixed !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
       height: var(--ad-h); box-sizing: border-box;
-      display: flex !important; flex-direction: column; align-items: center; justify-content: flex-start;
-      padding: 2px 0 env(safe-area-inset-bottom, 0px);
-      background: rgba(6, 13, 24, 0.96); border-top: 1px solid rgba(0, 229, 255, 0.25);
+      display: flex !important; justify-content: center; align-items: flex-start;
+      padding: 0 0 env(safe-area-inset-bottom, 0px);
+      background: transparent !important; border: 0 !important; box-shadow: none !important;
       z-index: 2147483000 !important;
-      visibility: visible !important; opacity: 0 !important; transform: none !important;
-      pointer-events: auto;
+      visibility: visible !important; opacity: 1 !important; transform: none !important;
+      pointer-events: none;            /* a faixa vazia deixa o clique passar para o jogo */
     }
-    #adBottom .ad-slot-inner { width: 300px; height: 250px; max-width: 100%; }
-    .ad-label {
-      display: block; font: 9px/12px sans-serif; letter-spacing: 1px;
-      text-transform: uppercase; color: rgba(255, 255, 255, 0.4); text-align: center;
-    }
+    #adBottomSlot { pointer-events: auto; max-width: 100%; overflow: hidden; background: transparent; }
+    #adBottomSlot iframe { display: block; border: 0 !important; max-width: 100% !important; }
 
-    /* Anúncio da tela de morte */
-    #adDeath { margin: 14px auto 0; min-height: 250px; }
+    /* Anúncios grandes da tela de morte (lado a lado no desktop, empilhados no celular) */
+    #adDeath { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; align-items: flex-start; margin: 14px auto 0; max-width: 100%; }
+    #adDeath .ad-death-item { max-width: 100%; overflow: hidden; }
+    #adDeathBox300 { width: 300px; height: 250px; }
+    #adDeathBox300 iframe { display: block; border: 0; max-width: 100%; }
 
     /* Telas/modais não podem ficar escondidas atrás do banner: reservam espaço embaixo */
     #menuScreen, #endScreen, #settingsScreen, #mpScreen, #helpScreen, #inventoryScreen {
@@ -455,10 +456,10 @@
     <button id="btnRestart" class="btn btn-primary">↺ Jogar Novamente</button>
     <button id="btnMenuEnd" class="btn btn-secondary">☰ Menu Principal</button>
   </div>
-  <!-- ANÚNCIO DA TELA DE MORTE — o script é carregado sob demanda (ver bloco "ADS" no fim do arquivo) -->
-  <div id="adDeath" class="ad-slot">
-    <span class="ad-label">Publicidade</span>
-    <div id="container-1d944df143917a350098be8c5671983c"></div>
+  <!-- ANÚNCIOS GRANDES DA TELA DE MORTE (300x250 + nativo) — carregados sob demanda (ver bloco "ADS" no fim do arquivo) -->
+  <div id="adDeath">
+    <div class="ad-death-item" id="adDeathBox300"></div>
+    <div class="ad-death-item"><div id="container-1d944df143917a350098be8c5671983c"></div></div>
   </div>
 </div>
 
@@ -481,21 +482,32 @@
 <script src="dev-panel.js"></script>
 <!-- ═══════════════════════════════════════════════════════════
      ANÚNCIO INFERIOR (sempre ativo) — #adBottom
-     O atOptions + script abaixo rodam aqui, durante o carregamento da página.
+     Celular = 320x50 · Desktop = 728x90. Só UM dos dois é carregado.
 ══════════════════════════════════════════════════════════════ -->
 <div id="adBottom">
-  <span class="ad-label">Publicidade</span>
-  <div class="ad-slot-inner" id="adBottomSlot">
+  <div id="adBottomSlot">
     <script>
-      atOptions = {
-        'key' : '9e24322663d4d4b3580db79a567324c3',
-        'format' : 'iframe',
-        'height' : 250,
-        'width' : 300,
-        'params' : {}
+      var AD_BANNERS = {
+        mobile:  { key: '620c70a79c452c50047090546d852af7', width: 320, height: 50 },
+        desktop: { key: '5cf13e9b4b620d2119b8004837c01658', width: 728, height: 90 }
       };
+      // "celular" = tela estreita (<768px) OU toque + tela baixa (celular deitado)
+      var AD_MOBILE_QUERY = '(max-width: 767px), (pointer: coarse) and (max-height: 500px)';
+      var AD_MQ = window.matchMedia ? window.matchMedia(AD_MOBILE_QUERY) : { matches: false };
+      var AD_BANNER = AD_MQ.matches ? AD_BANNERS.mobile : AD_BANNERS.desktop;
+
+      function setAdAltura(h) {   // reserva o espaço do banner (usado pelas telas e pelo HUD)
+        document.documentElement.style.setProperty('--ad-h', 'calc(' + h + 'px + env(safe-area-inset-bottom, 0px))');
+      }
+      setAdAltura(AD_BANNER.height);
+      var _slot = document.getElementById('adBottomSlot');
+      _slot.style.width = AD_BANNER.width + 'px';
+      _slot.style.height = AD_BANNER.height + 'px';
+
+      // Mesmo código da rede (atOptions + script), só que com a chave escolhida
+      atOptions = { 'key': AD_BANNER.key, 'format': 'iframe', 'height': AD_BANNER.height, 'width': AD_BANNER.width, 'params': {} };
+      document.write('<scr' + 'ipt src="https://bauval.org/22/' + AD_BANNER.key + '"></scr' + 'ipt>');
     </script>
-    <script src="https://bauval.org/22/9e24322663d4d4b3580db79a567324c3"></script>
   </div>
 </div>
 
@@ -526,19 +538,34 @@
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════
-     ADS — banner inferior sempre ativo + anúncio da tela de morte
+     ADS — banner inferior sempre ativo + anúncios grandes da tela de morte
 ══════════════════════════════════════════════════════════════ -->
 <script>
 (function () {
-  /* ── A) Banner inferior: autorrecuperação ──────────────────────────
-     Se alguém apagar o elemento, mudar o style/class, escondê-lo ou
-     cobri-lo com CSS, ele volta ao normal. Nada no navegador é 100% à
-     prova de manipulação, mas isso tira o "clique direito → apagar". */
+  // Monta o conteúdo de um iframe isolado (srcdoc) com o código da rede para uma chave/tamanho.
+  // Necessário porque o código da rede usa document.write, que não funciona depois do load.
+  function montarSrcdoc(cfg) {
+    var opts = JSON.stringify({ key: cfg.key, format: 'iframe', height: cfg.height, width: cfg.width, params: {} });
+    return '<!doctype html><body style="margin:0"><script>atOptions=' + opts + ';<\/script>' +
+           '<script src="https://bauval.org/22/' + cfg.key + '"><\/script></body>';
+  }
+  function criarIframe(cfg) {
+    var f = document.createElement('iframe');
+    f.width = cfg.width; f.height = cfg.height; f.setAttribute('frameborder', '0'); f.scrolling = 'no';
+    f.style.cssText = 'border:0;display:block;max-width:100%';
+    f.srcdoc = montarSrcdoc(cfg);
+    return f;
+  }
+
+  /* ── A) Banner inferior: autorrecuperação + troca celular/desktop ─────
+     Se alguém apagar o elemento, mudar style/class, escondê-lo ou cobri-lo com CSS,
+     ele volta ao normal. Nada no navegador é 100% à prova de manipulação, mas isso
+     tira o "clique direito → apagar". */
   var banner = document.getElementById('adBottom');
   var slot = document.getElementById('adBottomSlot');
-  if (banner && slot) {
+  if (banner && slot && typeof AD_BANNER !== 'undefined') {
     var ORIGINAL_CLASS = banner.className;
-    var viuIframe = false;      // só recarrega o anúncio se ele JÁ tinha aparecido (evita insistir se o bloqueador barrou o script)
+    var viuIframe = false;   // só recarrega se o anúncio JÁ tinha aparecido (evita insistir se um bloqueador barrou o script)
 
     var FORCADOS = [
       ['display', 'flex'], ['visibility', 'visible'], ['opacity', '1'],
@@ -546,31 +573,113 @@
       ['transform', 'none'], ['clip-path', 'none'], ['filter', 'none'],
       ['z-index', '2147483000'], ['height', 'var(--ad-h)']
     ];
-    function reaplicar() {
-      // IMPORTANTE: só escreve quando algo realmente mudou. Escrever o mesmo valor de novo
-      // dispara o MutationObserver, que chamaria reaplicar() outra vez... num loop infinito.
-      if (banner.hasAttribute('hidden')) banner.removeAttribute('hidden');
-      if (banner.className !== ORIGINAL_CLASS) banner.className = ORIGINAL_CLASS;
-      for (var i = 0; i < FORCADOS.length; i++) {
-        var prop = FORCADOS[i][0], val = FORCADOS[i][1];
-        if (banner.style.getPropertyValue(prop) !== val || banner.style.getPropertyPriority(prop) !== 'important') {
-          // estilo inline com !important vence qualquer regra de folha de estilo com !important
-          banner.style.setProperty(prop, val, 'important');
+    function listaSlot() {
+      return [['display', 'block'], ['visibility', 'visible'], ['opacity', '1'],
+              ['width', AD_BANNER.width + 'px'], ['height', AD_BANNER.height + 'px']];
+    }
+    function forcar(el, lista) {
+      for (var i = 0; i < lista.length; i++) {
+        var p = lista[i][0], v = lista[i][1];
+        // só escreve se mudou: escrever o mesmo valor dispara o MutationObserver → loop infinito
+        if (el.style.getPropertyValue(p) !== v || el.style.getPropertyPriority(p) !== 'important') {
+          el.style.setProperty(p, v, 'important');   // inline + !important vence qualquer CSS com !important
         }
       }
+    }
+    function reaplicar() {
+      if (banner.hasAttribute('hidden')) banner.removeAttribute('hidden');
+      if (banner.className !== ORIGINAL_CLASS) banner.className = ORIGINAL_CLASS;
+      forcar(banner, FORCADOS);
+      forcar(slot, listaSlot());
+      var f = slot.querySelector('iframe');
+      if (f) forcar(f, [['display', 'block'], ['visibility', 'visible'], ['opacity', '1']]);
     }
     function recolocar() {
       if (!banner.isConnected) document.body.appendChild(banner);
       reaplicar();
     }
     function recarregarAnuncio() {
-      // recria o anúncio num iframe isolado (srcdoc), pois document.write não funciona depois do load
       slot.innerHTML = '';
-      var f = document.createElement('iframe');
-      f.width = 300; f.height = 250; f.setAttribute('frameborder', '0'); f.scrolling = 'no';
-      f.style.cssText = 'border:0;width:300px;height:250px;max-width:100%';
-      f.srcdoc = '<!doctype html><body style="margin:0"><script>atOptions={"key":"9e24322663d4d4b3580db79a567324c3","format":"iframe","height":250,"width":300,"params":{}};<\/script>' +
-                 '<script src="https://bauval.org/22/9e24322663d4d4b3580db79a567324c3"><\/script></body>';
+      slot.appendChild(criarIframe(AD_BANNER));
+    }
+    function conferir() {
+      if (!banner.isConnected) recolocar();
+      var cs = getComputedStyle(banner), r = banner.getBoundingClientRect();
+      var ss = getComputedStyle(slot), sr = slot.getBoundingClientRect();
+      if (cs.display === 'none' || cs.visibility !== 'visible' || parseFloat(cs.opacity) < 1 ||
+          cs.position !== 'fixed' || cs.transform !== 'none' ||
+          r.height < 30 || r.width < 200 || Math.abs(r.bottom - innerHeight) > 2 ||
+          ss.display === 'none' || ss.visibility !== 'visible' || parseFloat(ss.opacity) < 1 ||
+          sr.height < AD_BANNER.height - 2) {
+        reaplicar();
+      }
+      if (slot.querySelector('iframe')) viuIframe = true;
+      else if (viuIframe) { viuIframe = false; recarregarAnuncio(); }   // o iframe do anúncio foi removido
+    }
+
+    // Girou o celular / redimensionou a janela e passou do limite celular↔desktop: troca o anúncio
+    function trocarFormato() {
+      var novo = AD_MQ.matches ? AD_BANNERS.mobile : AD_BANNERS.desktop;
+      if (novo === AD_BANNER) return;
+      AD_BANNER = novo;
+      setAdAltura(novo.height);
+      viuIframe = false;
+      recarregarAnuncio();
+      reaplicar();
+    }
+    if (AD_MQ.addEventListener) AD_MQ.addEventListener('change', trocarFormato);
+    else if (AD_MQ.addListener) AD_MQ.addListener(trocarFormato);
+
+    // Reação imediata a mudanças
+    new MutationObserver(conferir).observe(banner, { attributes: true, childList: true, subtree: true });
+    new MutationObserver(conferir).observe(document.body, { childList: true });
+    new MutationObserver(conferir).observe(document.head, { childList: true, subtree: true, characterData: true });
+    // Vigia periódico (pega o que os observers não pegam, ex.: regra CSS nova)
+    setInterval(conferir, 1500);
+    window.addEventListener('resize', conferir);
+    reaplicar();
+  }
+
+  /* ── B) Anúncios grandes da tela de morte: carregam só quando a tela aparece ──
+     (carregar escondido gera impressão que ninguém viu — redes de anúncio podem tratar
+     isso como tráfego inválido). A cada nova morte, eles são carregados de novo. */
+  var end = document.getElementById('endScreen');
+  var box300 = document.getElementById('adDeathBox300');
+  var boxNativo = document.getElementById('container-1d944df143917a350098be8c5671983c');
+  if (end && (box300 || boxNativo)) {
+    var AD_300 = { key: '9e24322663d4d4b3580db79a567324c3', width: 300, height: 250 };
+    var SRC_NATIVO = 'https://bauval.org/21/1d944df143917a350098be8c5671983c';
+    var estavaVisivel = false;
+    function visivel() {
+      var cs = getComputedStyle(end);
+      return cs.display !== 'none' && cs.visibility !== 'hidden' && end.offsetHeight > 0;
+    }
+    function carregarAnunciosMorte() {
+      if (box300) {
+        box300.innerHTML = '';
+        box300.appendChild(criarIframe(AD_300));
+      }
+      if (boxNativo) {
+        boxNativo.innerHTML = '';
+        var old = document.getElementById('adDeathScript');
+        if (old) old.remove();
+        var s = document.createElement('script');
+        s.id = 'adDeathScript'; s.async = true; s.src = SRC_NATIVO;
+        s.setAttribute('data-cfasync', 'false');
+        document.body.appendChild(s);
+      }
+    }
+    function checar() {
+      var v = visivel();
+      if (v && !estavaVisivel) carregarAnunciosMorte();   // acabou de aparecer = nova morte
+      estavaVisivel = v;
+    }
+    new MutationObserver(checar).observe(end, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+    checar();
+  }
+})();
+</script>
+</body>';
       slot.appendChild(f);
     }
     function conferir() {
