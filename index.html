@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://bauval.org; frame-src 'self' https://bauval.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://bauval.org; connect-src 'self' https://bauval.org wss://open.ftorrent.com wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.files.fm stun: turn:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://bauval.org; frame-src 'self' https://bauval.org https://*.bauval.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://bauval.org https://*.nresystems.com https://*.storageimagedisplay.com *; connect-src 'self' https://bauval.org https://*.nresystems.com https://*.storageimagedisplay.com wss://open.ftorrent.com wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.files.fm stun: turn:;">
   <!-- connect-src acima é só pro "aperto de mão" inicial (sinalização via
        trackers públicos de BitTorrent + STUN, usados pelo multiplayer.js/
        trystero-torrent.min.js). Depois que dois jogadores se conectam, os
