@@ -12,8 +12,105 @@
   <title>Signal Lost</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23060d18'/><circle cx='16' cy='16' r='10' fill='none' stroke='%2300e5ff' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%2300e5ff'/><line x1='16' y1='2' x2='16' y2='6' stroke='%2300e5ff' stroke-width='2'/><line x1='16' y1='26' x2='16' y2='30' stroke='%2300e5ff' stroke-width='2'/></svg>">
   <link rel="stylesheet" href="style.css">
+  <style id="ads-terms-css">
+    /* ════════ ANÚNCIOS + TERMOS ════════
+       --ad-h = altura reservada para o banner inferior (250px do anúncio + rótulo).
+       Se um dia trocar para um anúncio menor (ex.: 728x90 ou 320x50), mude só este valor
+       e o width/height do atOptions lá embaixo. */
+    :root { --ad-h: calc(272px + env(safe-area-inset-bottom, 0px)); }
+
+    /* Banner inferior: fixo, sempre acima de tudo */
+    #adBottom {
+      position: fixed !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+      height: var(--ad-h); box-sizing: border-box;
+      display: flex !important; flex-direction: column; align-items: center; justify-content: flex-start;
+      padding: 2px 0 env(safe-area-inset-bottom, 0px);
+      background: rgba(6, 13, 24, 0.96); border-top: 1px solid rgba(0, 229, 255, 0.25);
+      z-index: 2147483000 !important;
+      visibility: visible !important; opacity: 1 !important; transform: none !important;
+      pointer-events: auto;
+    }
+    #adBottom .ad-slot-inner { width: 300px; height: 250px; max-width: 100%; }
+    .ad-label {
+      display: block; font: 9px/12px sans-serif; letter-spacing: 1px;
+      text-transform: uppercase; color: rgba(255, 255, 255, 0.4); text-align: center;
+    }
+
+    /* Anúncio da tela de morte */
+    #adDeath { margin: 14px auto 0; min-height: 250px; }
+
+    /* Telas/modais não podem ficar escondidas atrás do banner: reservam espaço embaixo */
+    #menuScreen, #endScreen, #settingsScreen, #mpScreen, #helpScreen, #inventoryScreen {
+      box-sizing: border-box; padding-bottom: var(--ad-h);
+    }
+    /* Elementos do HUD ancorados embaixo sobem a altura do banner */
+    #minimap, #biomeTag, #hudAlert { margin-bottom: var(--ad-h); }
+
+    /* Termos de uso — fica acima do jogo, mas não cobre o banner */
+    #termsOverlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: var(--ad-h);
+      z-index: 2147482000; display: flex; align-items: center; justify-content: center;
+      background: rgba(2, 6, 12, 0.94); padding: 12px; box-sizing: border-box;
+    }
+    #termsOverlay[hidden] { display: none; }
+    .terms-box {
+      width: min(640px, 100%); max-height: 100%; display: flex; flex-direction: column;
+      background: #08121f; border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 10px;
+      color: #cfe9f2; font: 13px/1.5 sans-serif;
+    }
+    .terms-box h2 { margin: 0; padding: 14px 16px 8px; font-size: 16px; color: #00e5ff; letter-spacing: 1px; }
+    .terms-scroll { overflow-y: auto; padding: 0 16px 8px; }
+    .terms-scroll h3 { margin: 12px 0 4px; font-size: 13px; color: #00e5ff; }
+    .terms-scroll p, .terms-scroll li { margin: 0 0 6px; }
+    .terms-scroll ul { margin: 0 0 6px; padding-left: 18px; }
+    .terms-foot { padding: 10px 16px 14px; border-top: 1px solid rgba(0, 229, 255, 0.2); }
+    .terms-foot label { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; cursor: pointer; }
+    #btnTermsAccept[disabled] { opacity: 0.4; cursor: not-allowed; }
+  </style>
 </head>
 <body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TERMOS DE USO + AVISO DE ISENÇÃO (aparece ao entrar; precisa aceitar)
+     Para exigir novo aceite no futuro, mude TERMS_VERSION no bloco "TERMOS" no fim do arquivo.
+══════════════════════════════════════════════════════════════ -->
+<div id="termsOverlay" role="dialog" aria-modal="true" aria-labelledby="termsTitle">
+  <div class="terms-box">
+    <h2 id="termsTitle">TERMOS DE USO E AVISO DE ISENÇÃO</h2>
+    <div class="terms-scroll">
+      <h3>1. Termos de Uso</h3>
+      <ul>
+        <li>Signal Lost é um jogo gratuito de entretenimento, oferecido “como está”, sem garantia de funcionamento contínuo, de disponibilidade ou de ausência de erros.</li>
+        <li>Você usa o jogo por sua conta e risco. Menores de 18 anos devem ter autorização de um responsável.</li>
+        <li>É proibido usar o jogo para fraudar, atacar, assediar outros jogadores ou tentar prejudicar o funcionamento do serviço.</li>
+        <li>Podemos alterar, suspender ou encerrar o jogo e estes termos a qualquer momento.</li>
+      </ul>
+
+      <h3>2. Anúncios de terceiros</h3>
+      <p>O jogo exibe anúncios fornecidos por redes de publicidade de terceiros. Essas redes podem usar cookies, identificadores e o seu endereço IP, conforme as políticas delas, e podem exibir conteúdo que não controlamos. Ao jogar, você reconhece que isso ocorre.</p>
+
+      <h3>3. Não nos responsabilizamos por</h3>
+      <ul>
+        <li>perda de progresso, partidas salvas, configurações ou mapas (os dados ficam no seu navegador e podem ser apagados a qualquer momento);</li>
+        <li>falhas, travamentos, quedas de desempenho, incompatibilidade ou qualquer dano ao seu dispositivo, conta ou dados;</li>
+        <li>o conteúdo, a veracidade e o comportamento dos anúncios, sites ou produtos de terceiros, nem por qualquer clique ou compra feita a partir deles;</li>
+        <li>a conduta, o nome ou as mensagens de outros jogadores no multiplayer. As conexões são diretas (P2P), e o seu endereço IP pode ficar visível aos jogadores da sala e aos serviços públicos usados para conectar;</li>
+        <li>uso por menores sem supervisão, ou uso fora do que estes termos permitem;</li>
+        <li>interrupções, indisponibilidade ou encerramento do jogo.</li>
+      </ul>
+
+      <h3>4. Aviso de saúde</h3>
+      <p>O jogo contém efeitos visuais piscantes e pulsantes. Pare de jogar se sentir desconforto, tontura ou qualquer sintoma. Faça pausas regulares.</p>
+
+      <h3>5. Aceite</h3>
+      <p>Ao marcar a caixa e clicar em “Aceitar e jogar”, você declara que leu e concorda com estes termos. Se não concordar, feche esta página.</p>
+    </div>
+    <div class="terms-foot">
+      <label><input type="checkbox" id="termsCheck"> <span>Li e concordo com os Termos de Uso e com o Aviso de Isenção.</span></label>
+      <button id="btnTermsAccept" class="btn btn-primary" disabled>✔ Aceitar e jogar</button>
+    </div>
+  </div>
+</div>
 
 <!-- ═══════════════════════════════════════════════════════════
      MAIN CANVAS
@@ -56,19 +153,6 @@
     <button id="btnRandom" class="btn btn-secondary">⚄ Mundo Aleatório</button>
   </div>
 
-  <!-- ANÚNCIO VISÍVEL NO MENU -->
-  <div id="container-anuncios" style="width: 300px; height: 250px; margin: 15px auto; position: relative; z-index: 9999;">
-    <script>
-      atOptions = {
-        'key' : '9e24322663d4d4b3580db79a567324c3',
-        'format' : 'iframe',
-        'height' : 250,
-        'width' : 300,
-        'params' : {}
-      };
-    </script>
-    <script src="https://bauval.org/22/9e24322663d4d4b3580db79a567324c3"></script>
-  </div>
 
   <div class="menu-hints">
     <kbd>WASD</kbd> / <kbd>↑↓←→</kbd> Mover — as armas atiram sozinhas &nbsp;|&nbsp;
@@ -371,6 +455,11 @@
     <button id="btnRestart" class="btn btn-primary">↺ Jogar Novamente</button>
     <button id="btnMenuEnd" class="btn btn-secondary">☰ Menu Principal</button>
   </div>
+  <!-- ANÚNCIO DA TELA DE MORTE — o script é carregado sob demanda (ver bloco "ADS" no fim do arquivo) -->
+  <div id="adDeath" class="ad-slot">
+    <span class="ad-label">Publicidade</span>
+    <div id="container-1d944df143917a350098be8c5671983c"></div>
+  </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
@@ -390,17 +479,152 @@
 <script src="multiplayer.js"></script>
 <!-- Painel dev — só ativa sozinho se existir assets/local.js (ver dev-panel.js) -->
 <script src="dev-panel.js"></script>
-<div id="container-anuncios" style="width: 300px; height: 250px; margin: 10px auto;">
-  <script>
-    atOptions = {
-      'key' : '9e24322663d4d4b3580db79a567324c3',
-      'format' : 'iframe',
-      'height' : 250,
-      'width' : 300,
-      'params' : {}
-    };
-  </script>
-  <script src="https://bauval.org/22/9e24322663d4d4b3580db79a567324c3"></script>
+<!-- ═══════════════════════════════════════════════════════════
+     ANÚNCIO INFERIOR (sempre ativo) — #adBottom
+     O atOptions + script abaixo rodam aqui, durante o carregamento da página.
+══════════════════════════════════════════════════════════════ -->
+<div id="adBottom">
+  <span class="ad-label">Publicidade</span>
+  <div class="ad-slot-inner" id="adBottomSlot">
+    <script>
+      atOptions = {
+        'key' : '9e24322663d4d4b3580db79a567324c3',
+        'format' : 'iframe',
+        'height' : 250,
+        'width' : 300,
+        'params' : {}
+      };
+    </script>
+    <script src="https://bauval.org/22/9e24322663d4d4b3580db79a567324c3"></script>
+  </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TERMOS — controla o modal de aceite
+══════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  var TERMS_VERSION = 1;                       // aumente para pedir novo aceite
+  var KEY = 'signalLost_terms_v' + TERMS_VERSION;
+  var overlay = document.getElementById('termsOverlay');
+  var check = document.getElementById('termsCheck');
+  var btn = document.getElementById('btnTermsAccept');
+  if (!overlay || !check || !btn) return;
+
+  function jaAceitou() { try { return !!localStorage.getItem(KEY); } catch (e) { return false; } }
+  function gravar() { try { localStorage.setItem(KEY, String(Date.now())); } catch (e) { /* modo privado: pede de novo na próxima visita */ } }
+
+  if (jaAceitou()) { overlay.hidden = true; return; }
+
+  check.addEventListener('change', function () { btn.disabled = !check.checked; });
+  btn.addEventListener('click', function () {
+    if (!check.checked) return;
+    gravar();
+    overlay.hidden = true;
+  });
+})();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════
+     ADS — banner inferior sempre ativo + anúncio da tela de morte
+══════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  /* ── A) Banner inferior: autorrecuperação ──────────────────────────
+     Se alguém apagar o elemento, mudar o style/class, escondê-lo ou
+     cobri-lo com CSS, ele volta ao normal. Nada no navegador é 100% à
+     prova de manipulação, mas isso tira o "clique direito → apagar". */
+  var banner = document.getElementById('adBottom');
+  var slot = document.getElementById('adBottomSlot');
+  if (banner && slot) {
+    var ORIGINAL_CLASS = banner.className;
+    var viuIframe = false;      // só recarrega o anúncio se ele JÁ tinha aparecido (evita insistir se o bloqueador barrou o script)
+
+    var FORCADOS = [
+      ['display', 'flex'], ['visibility', 'visible'], ['opacity', '1'],
+      ['position', 'fixed'], ['bottom', '0'], ['left', '0'], ['right', '0'],
+      ['transform', 'none'], ['clip-path', 'none'], ['filter', 'none'],
+      ['z-index', '2147483000'], ['height', 'var(--ad-h)']
+    ];
+    function reaplicar() {
+      // IMPORTANTE: só escreve quando algo realmente mudou. Escrever o mesmo valor de novo
+      // dispara o MutationObserver, que chamaria reaplicar() outra vez... num loop infinito.
+      if (banner.hasAttribute('hidden')) banner.removeAttribute('hidden');
+      if (banner.className !== ORIGINAL_CLASS) banner.className = ORIGINAL_CLASS;
+      for (var i = 0; i < FORCADOS.length; i++) {
+        var prop = FORCADOS[i][0], val = FORCADOS[i][1];
+        if (banner.style.getPropertyValue(prop) !== val || banner.style.getPropertyPriority(prop) !== 'important') {
+          // estilo inline com !important vence qualquer regra de folha de estilo com !important
+          banner.style.setProperty(prop, val, 'important');
+        }
+      }
+    }
+    function recolocar() {
+      if (!banner.isConnected) document.body.appendChild(banner);
+      reaplicar();
+    }
+    function recarregarAnuncio() {
+      // recria o anúncio num iframe isolado (srcdoc), pois document.write não funciona depois do load
+      slot.innerHTML = '';
+      var f = document.createElement('iframe');
+      f.width = 300; f.height = 250; f.setAttribute('frameborder', '0'); f.scrolling = 'no';
+      f.style.cssText = 'border:0;width:300px;height:250px;max-width:100%';
+      f.srcdoc = '<!doctype html><body style="margin:0"><script>atOptions={"key":"9e24322663d4d4b3580db79a567324c3","format":"iframe","height":250,"width":300,"params":{}};<\/script>' +
+                 '<script src="https://bauval.org/22/9e24322663d4d4b3580db79a567324c3"><\/script></body>';
+      slot.appendChild(f);
+    }
+    function conferir() {
+      if (!banner.isConnected) recolocar();
+      var cs = getComputedStyle(banner), r = banner.getBoundingClientRect();
+      if (cs.display === 'none' || cs.visibility !== 'visible' || parseFloat(cs.opacity) < 1 ||
+          cs.position !== 'fixed' || r.height < 50 || r.width < 200 ||
+          r.bottom < innerHeight - 2 || r.bottom > innerHeight + 2 || cs.transform !== 'none') {
+        reaplicar();
+      }
+      if (slot.querySelector('iframe')) viuIframe = true;
+      else if (viuIframe) { viuIframe = false; recarregarAnuncio(); }   // iframe do anúncio foi removido
+    }
+
+    // Reação imediata a mudanças
+    new MutationObserver(conferir).observe(banner, { attributes: true, childList: true, subtree: true });
+    new MutationObserver(conferir).observe(document.body, { childList: true });
+    new MutationObserver(conferir).observe(document.head, { childList: true, subtree: true, characterData: true });
+    // Vigia periódico (pega o que os observers não pegam, ex.: regra CSS nova)
+    setInterval(conferir, 1500);
+    window.addEventListener('resize', conferir);
+    reaplicar();
+  }
+
+  /* ── B) Anúncio da tela de morte: carrega só quando a tela aparece ──
+     (carregar escondido gera impressão que ninguém viu — e as redes de anúncio
+     podem tratar isso como tráfego inválido). */
+  var end = document.getElementById('endScreen');
+  var box = document.getElementById('container-1d944df143917a350098be8c5671983c');
+  if (end && box) {
+    var SRC = 'https://bauval.org/21/1d944df143917a350098be8c5671983c';
+    var estavaVisivel = false;
+    function visivel() {
+      var cs = getComputedStyle(end);
+      return cs.display !== 'none' && cs.visibility !== 'hidden' && end.offsetHeight > 0;
+    }
+    function carregarAnuncioMorte() {
+      box.innerHTML = '';
+      var old = document.getElementById('adDeathScript');
+      if (old) old.remove();
+      var s = document.createElement('script');
+      s.id = 'adDeathScript'; s.async = true; s.src = SRC;
+      s.setAttribute('data-cfasync', 'false');
+      document.body.appendChild(s);
+    }
+    function checar() {
+      var v = visivel();
+      if (v && !estavaVisivel) carregarAnuncioMorte();   // acabou de aparecer = nova morte
+      estavaVisivel = v;
+    }
+    new MutationObserver(checar).observe(end, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+    checar();
+  }
+})();
+</script>
 </body>
 </html>
