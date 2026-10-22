@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' wss://open.ftorrent.com wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.files.fm stun: turn:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://bauval.org; frame-src https://bauval.org; connect-src 'self' wss://open.ftorrent.com wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.files.fm stun: turn:;">
   <!-- connect-src acima é só pro "aperto de mão" inicial (sinalização via
        trackers públicos de BitTorrent + STUN, usados pelo multiplayer.js/
        trystero-torrent.min.js). Depois que dois jogadores se conectam, os
@@ -375,15 +375,17 @@
 <script src="multiplayer.js"></script>
 <!-- Painel dev — só ativa sozinho se existir assets/local.js (ver dev-panel.js) -->
 <script src="dev-panel.js"></script>
-<script>
-  atOptions = {
-    'key' : '9e24322663d4d4b3580db79a567324c3',
-    'format' : 'iframe',
-    'height' : 250,
-    'width' : 300,
-    'params' : {}
-  };
-</script>
-<script src="https://bauval.org/22/9e24322663d4d4b3580db79a567324c3"></script>
+<div id="container-anuncios" style="width: 300px; height: 250px; margin: 10px auto;">
+  <script>
+    atOptions = {
+      'key' : '9e24322663d4d4b3580db79a567324c3',
+      'format' : 'iframe',
+      'height' : 250,
+      'width' : 300,
+      'params' : {}
+    };
+  </script>
+  <script src="https://bauval.org/22/9e24322663d4d4b3580db79a567324c3"></script>
+</div>
 </body>
 </html>
