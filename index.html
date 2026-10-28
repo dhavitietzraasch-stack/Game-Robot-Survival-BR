@@ -10,7 +10,7 @@
        dados do jogo trafegam direto peer-to-peer via WebRTC, criptografados,
        sem passar por nenhum desses hosts nem por servidor nosso. -->
   <title>Signal Lost</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23060d18'/><circle cx='16' cy='16' r='10' fill='none' stroke='%2300e5ff' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='%2300e5ff'/><line x1='16' y1='2' x2='16' y2='6' stroke='%2300e5ff' stroke-width='2'/><line x1='16' y1='26' x2='16' y2='30' stroke='%2300e5ff' stroke-width='2'/></svg>">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="style.css">
   <style id="ads-terms-css">
     /* ════════ ANÚNCIOS + TERMOS ════════
@@ -67,6 +67,18 @@
     .terms-foot { padding: 10px 16px 14px; border-top: 1px solid rgba(0, 229, 255, 0.2); }
     .terms-foot label { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; cursor: pointer; }
     #btnTermsAccept[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+    /* Logo no menu principal */
+    .menu-logo {
+      display: flex;
+      justify-content: center;
+      margin: 0 0 10px;
+      filter: drop-shadow(0 0 12px rgba(0, 229, 255, 0.45));
+    }
+    .menu-logo svg {
+      display: block;
+      border-radius: 14px;
+    }
   </style>
 </head>
 <body>
@@ -126,6 +138,19 @@
   <button id="btnHelp" class="menu-help-btn" title="Ajuda / Tutorial">❓</button>
   <button id="btnSettings" class="menu-settings-btn" title="Configurações">⚙</button>
   <div class="menu-signal-ring"></div>
+  <!-- Logo mark -->
+  <div class="menu-logo" aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="72" height="72">
+      <rect width="64" height="64" rx="12" fill="#060d18"/>
+      <circle cx="32" cy="32" r="18" fill="none" stroke="#00e5ff" stroke-width="2.5" opacity="0.35"/>
+      <circle cx="32" cy="32" r="11" fill="none" stroke="#00e5ff" stroke-width="3"/>
+      <circle cx="32" cy="32" r="5" fill="#00e5ff"/>
+      <line x1="32" y1="4"  x2="32" y2="12" stroke="#00e5ff" stroke-width="3" stroke-linecap="round"/>
+      <line x1="32" y1="52" x2="32" y2="60" stroke="#00e5ff" stroke-width="3" stroke-linecap="round"/>
+      <line x1="4"  y1="32" x2="12" y2="32" stroke="#00e5ff" stroke-width="3" stroke-linecap="round"/>
+      <line x1="52" y1="32" x2="60" y2="32" stroke="#00e5ff" stroke-width="3" stroke-linecap="round"/>
+    </svg>
+  </div>
   <h1>SIGNAL LOST</h1>
   <p class="menu-sub">Exploração Procedural · Horda · Sobrevivência</p>
   <p class="menu-lore">UNIDADE-7 acordou em um mundo desconhecido.<br>Não há resgate. Só sobrevivência.</p>
