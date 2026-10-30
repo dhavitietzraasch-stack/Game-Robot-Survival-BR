@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://bauval.org; frame-src 'self' https://bauval.org https://*.bauval.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://bauval.org https://*.nresystems.com https://*.storageimagedisplay.com *; connect-src 'self' https://bauval.org https://*.nresystems.com https://*.storageimagedisplay.com wss://open.ftorrent.com wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.files.fm stun: turn:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://bauval.org https://abscloud.org https://*.abscloud.org; frame-src 'self' https://bauval.org https://*.bauval.org https://abscloud.org https://*.abscloud.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://bauval.org https://*.nresystems.com https://*.storageimagedisplay.com *; connect-src 'self' https://bauval.org https://abscloud.org https://*.abscloud.org https://*.nresystems.com https://*.storageimagedisplay.com wss://open.ftorrent.com wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.files.fm stun: turn:;">
   <!-- connect-src acima é só pro "aperto de mão" inicial (sinalização via
        trackers públicos de BitTorrent + STUN, usados pelo multiplayer.js/
        trystero-torrent.min.js). Depois que dois jogadores se conectam, os
@@ -34,8 +34,27 @@
     #adBottomSlot { pointer-events: auto; max-width: 100%; overflow: hidden; background: transparent; }
     #adBottomSlot iframe { display: block; border: 0 !important; max-width: 100% !important; }
 
-    /* Anúncios grandes da tela de morte (lado a lado no desktop, empilhados no celular) */
-    #adDeath { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; align-items: flex-start; margin: 14px auto 0; max-width: 100%; }
+    /* Tela de morte — os BOTÕES são a prioridade; os anúncios entram depois, por baixo.
+       · a tela rola em vez de cortar (antes, com anúncios empilhados no celular, título e botões
+         saíam da tela porque o conteúdo era centralizado sem scroll);
+       · centraliza "com segurança": os margin:auto só sobram quando cabe tudo; se não couber, começa do topo;
+       · os botões ficam acima (z-index) e fora do alcance de qualquer anúncio. */
+    #endScreen { overflow-y: auto; justify-content: flex-start; }
+    #endScreen > :first-child { margin-top: auto; }
+    #endScreen > :last-child  { margin-bottom: auto; }
+    #endScreen .btn-group { position: relative; z-index: 2; flex-shrink: 0; }
+
+    /* Anúncios grandes da tela de morte (lado a lado no desktop, empilhados no celular).
+       Nascem invisíveis e sem clique; o JS só adiciona .in depois de ~1,2s (ver bloco ADS, parte B),
+       aparecendo com um fade suave em vez de piscar na cara do jogador. */
+    #adDeath {
+      display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; align-items: flex-start;
+      margin: 22px auto 0; max-width: 100%; flex-shrink: 0; position: relative; z-index: 1;
+      opacity: 0; transform: translateY(10px); pointer-events: none;
+      transition: opacity .9s ease, transform .9s ease;
+    }
+    #adDeath.in { opacity: 1; transform: none; pointer-events: auto; }
+    @media (prefers-reduced-motion: reduce) { #adDeath { transition: none; transform: none; } }
     #adDeath .ad-death-item { max-width: 100%; overflow: hidden; }
     #adDeathBox300 { width: 300px; height: 250px; }
     #adDeathBox300 iframe { display: block; border: 0; max-width: 100%; }
@@ -675,9 +694,28 @@
     var AD_300 = { key: '9e24322663d4d4b3580db79a567324c3', width: 300, height: 250 };
     var SRC_NATIVO = 'https://bauval.org/21/1d944df143917a350098be8c5671983c';
     var estavaVisivel = false;
+    var adDeath = document.getElementById('adDeath');
+    var DELAY_APARECER = 1200;   // ms até o bloco de anúncios começar a surgir (fade) — dá tempo de ver/clicar nos botões
+    var DELAY_CARREGAR = 1800;   // ms até a rede de anúncios ser realmente chamada (já com o bloco visível)
+    var tAparecer = 0, tCarregar = 0;
     function visivel() {
-      var cs = getComputedStyle(end);
-      return cs.display !== 'none' && cs.visibility !== 'hidden' && end.offsetHeight > 0;
+      // #endScreen fica sempre com display:flex (só muda opacity/pointer-events), então o teste
+      // antigo por display/offsetHeight dava "visível" já ao abrir a página: os anúncios carregavam
+      // escondidos uma vez e nunca mais recarregavam nas mortes seguintes. A classe .show é o sinal real.
+      return end.classList.contains('show');
+    }
+    function limparAnunciosMorte() {
+      clearTimeout(tAparecer); clearTimeout(tCarregar);
+      if (adDeath) adDeath.classList.remove('in');
+      if (box300) box300.innerHTML = '';          // tela fechada = nada de anúncio rodando escondido
+      if (boxNativo) boxNativo.innerHTML = '';
+      var old = document.getElementById('adDeathScript');
+      if (old) old.remove();
+    }
+    function agendarAnunciosMorte() {
+      clearTimeout(tAparecer); clearTimeout(tCarregar);
+      tAparecer = setTimeout(function () { if (adDeath) adDeath.classList.add('in'); }, DELAY_APARECER);
+      tCarregar = setTimeout(function () { if (visivel()) carregarAnunciosMorte(); }, DELAY_CARREGAR);
     }
     function carregarAnunciosMorte() {
       if (box300) {
@@ -696,7 +734,8 @@
     }
     function checar() {
       var v = visivel();
-      if (v && !estavaVisivel) carregarAnunciosMorte();   // acabou de aparecer = nova morte
+      if (v && !estavaVisivel) agendarAnunciosMorte();    // acabou de aparecer = nova morte
+      else if (!v && estavaVisivel) limparAnunciosMorte();
       estavaVisivel = v;
     }
     new MutationObserver(checar).observe(end, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
@@ -704,61 +743,8 @@
   }
 })();
 </script>
-</body>';
-      slot.appendChild(f);
-    }
-    function conferir() {
-      if (!banner.isConnected) recolocar();
-      var cs = getComputedStyle(banner), r = banner.getBoundingClientRect();
-      if (cs.display === 'none' || cs.visibility !== 'visible' || parseFloat(cs.opacity) < 1 ||
-          cs.position !== 'fixed' || r.height < 50 || r.width < 200 ||
-          r.bottom < innerHeight - 2 || r.bottom > innerHeight + 2 || cs.transform !== 'none') {
-        reaplicar();
-      }
-      if (slot.querySelector('iframe')) viuIframe = true;
-      else if (viuIframe) { viuIframe = false; recarregarAnuncio(); }   // iframe do anúncio foi removido
-    }
 
-    // Reação imediata a mudanças
-    new MutationObserver(conferir).observe(banner, { attributes: true, childList: true, subtree: true });
-    new MutationObserver(conferir).observe(document.body, { childList: true });
-    new MutationObserver(conferir).observe(document.head, { childList: true, subtree: true, characterData: true });
-    // Vigia periódico (pega o que os observers não pegam, ex.: regra CSS nova)
-    setInterval(conferir, 1500);
-    window.addEventListener('resize', conferir);
-    reaplicar();
-  }
-
-  /* ── B) Anúncio da tela de morte: carrega só quando a tela aparece ──
-     (carregar escondido gera impressão que ninguém viu — e as redes de anúncio
-     podem tratar isso como tráfego inválido). */
-  var end = document.getElementById('endScreen');
-  var box = document.getElementById('container-1d944df143917a350098be8c5671983c');
-  if (end && box) {
-    var SRC = 'https://bauval.org/21/1d944df143917a350098be8c5671983c';
-    var estavaVisivel = false;
-    function visivel() {
-      var cs = getComputedStyle(end);
-      return cs.display !== 'none' && cs.visibility !== 'hidden' && end.offsetHeight > 0;
-    }
-    function carregarAnuncioMorte() {
-      box.innerHTML = '';
-      var old = document.getElementById('adDeathScript');
-      if (old) old.remove();
-      var s = document.createElement('script');
-      s.id = 'adDeathScript'; s.async = true; s.src = SRC;
-      s.setAttribute('data-cfasync', 'false');
-      document.body.appendChild(s);
-    }
-    function checar() {
-      var v = visivel();
-      if (v && !estavaVisivel) carregarAnuncioMorte();   // acabou de aparecer = nova morte
-      estavaVisivel = v;
-    }
-    new MutationObserver(checar).observe(end, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
-    checar();
-  }
-})();
-</script>
+<!-- Script de anúncio (rede abscloud). Fica no FIM do body, depois do jogo, para não atrasar o carregamento. -->
+<script data-cfasync="false" src="https://abscloud.org/1/05253768fd13ec352498a94fb7c66305"></script>
 </body>
 </html>

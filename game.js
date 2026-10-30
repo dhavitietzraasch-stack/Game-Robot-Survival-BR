@@ -457,52 +457,6 @@ function placeStructures(wg, ig, rand){
     structures.push({type:'ship', cx, cy, rx, ry});
   }
 
-  // ── Nave destruída de spawn (onde o jogador acorda) — corpo maior com detalhes
-  function placePlayerSpawnShip(cx, cy){
-    const rx = 14, ry = 9;
-    // Casco externo: REINFORCED
-    for(let ty=cy-ry-1;ty<=cy+ry+1;ty++){
-      for(let tx=cx-rx-1;tx<=cx+rx+1;tx++){
-        if(!inBounds(tx,ty)) continue;
-        const d = Math.hypot((tx-cx)/rx, (ty-cy)/ry);
-        if(d>1.0) continue;
-        let tile;
-        if(d>0.88)      tile = T.OBSIDIAN;    // borda externa — casco carbonizado
-        else if(d>0.72) tile = T.REINFORCED;  // camada estrutural
-        else if(d>0.55) tile = T.BUILT_BLOCK; // interior danificado
-        else            tile = T.CAVE_FLOOR;  // chão interno
-        wg[wi(tx,ty)] = tile;
-        ig[wi(tx,ty)] = BLOCK_INTEGRITY[tile]||100;
-      }
-    }
-    // "Buracos" de impacto: aberturas no casco (2-3 furos aleatórios, mas fixos via posição)
-    const holeOffsets = [[-rx+2, -1], [rx-2, 2], [1, ry-1], [-2, -ry+2]];
-    for(const [hox, hoy] of holeOffsets){
-      const htx = cx+hox, hty = cy+hoy;
-      for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
-        if(!inBounds(htx+dx,hty+dy)) continue;
-        wg[wi(htx+dx,hty+dy)] = T.VOLCANIC_ASH; // cinzas ao redor do buraco
-      }
-      if(inBounds(htx,hty)) wg[wi(htx,hty)] = T.LAVA; // núcleo do buraco com lava
-    }
-    // Interior: alguns blocos de cristal como equipamento danificado
-    const eqOffsets = [[-4,-2],[4,-2],[0,3],[-6,0],[6,1]];
-    for(const [ox,oy] of eqOffsets){
-      const etx=cx+ox, ety=cy+oy;
-      if(!inBounds(etx,ety)) continue;
-      const d2=Math.hypot(ox/rx,oy/ry);
-      if(d2<0.55) { wg[wi(etx,ety)]=T.CRYSTAL; ig[wi(etx,ety)]=BLOCK_INTEGRITY[T.CRYSTAL]||150; }
-    }
-    // Centro: posição livre garantida para o spawn do jogador
-    for(let dy=-2;dy<=2;dy++) for(let dx=-3;dx<=3;dx++){
-      if(!inBounds(cx+dx,cy+dy)) continue;
-      const d3=Math.hypot(dx/rx,dy/ry);
-      if(d3<0.35){ wg[wi(cx+dx,cy+dy)]=T.CAVE_FLOOR; ig[wi(cx+dx,cy+dy)]=0; }
-    }
-    structures.push({type:'player_spawn_ship', cx, cy, rx, ry});
-    return {cx, cy, rx, ry};
-  }
-
   // ─ Espalhar N estruturas de cada tipo ─
   const usedCenters = [];
   function clearSpot(cx, cy, minDist=60){
@@ -721,6 +675,7 @@ function loadGame(){
   }
 
   seedStr = data.seed || seedStr;
+  updateErrorSkin(seedStr); // jogo carregado do save também respeita o easter egg
   gameMode = data.mode || gameMode;
   WORLD_W = data.worldW || WORLD_W;
   WORLD_H = data.worldH || WORLD_H;
@@ -1389,12 +1344,43 @@ const mctx=minimapCanvas?minimapCanvas.getContext('2d'):null;
 let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
 
 // ─── Sprites (aparência de UNIDADE-7, nave de resgate e antenas) ──
+// encodeURIComponent no nome do arquivo: o "&" de "player_dano&resistencia-superior.png" vira %26
+// (evita ser lido como separador de query em hosts/proxies mais chatos; o servidor decodifica normalmente).
+const _spr = f => Object.assign(new Image(), {src:'assets/'+encodeURIComponent(f)});
 const SPRITES = {
-  player:  Object.assign(new Image(), {src:'assets/player.png'}),
-  ship:    Object.assign(new Image(), {src:'assets/ship.png'}),
-  antenna: Object.assign(new Image(), {src:'assets/antenna.png'}),
+  player:  _spr('player.png'),
+  ship:    _spr('ship.png'),
+  antenna: _spr('antenna.png'),
+  // Skins do player (camadas que fazem crossfade por cima da base — ver drawPlayerSkin)
+  playerDmg:    _spr('player_dano-superior.png'),            // LEDs/energia vermelhos
+  playerRes:    _spr('player_resistencia-superior.png'),     // casca preta
+  playerDmgRes: _spr('player_dano&resistencia-superior.png'),// casca preta + LEDs vermelhos
+  playerError:  _spr('.error-player.png'),                   // easter egg (só LEDs, no void)
 };
 function spriteReady(img){ return img && img.complete && img.naturalWidth>0; }
+
+// ─── Skin do player (evolui com os stats, com crossfade) ─────────
+// smoothstep de v entre a e b: 0 em a, 1 em b, curva suave no meio.
+function smoothstat(v, a, b) {
+  const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+// Easter egg: seeds que ativam a skin de erro (comparação case-insensitive).
+const ERROR_SKIN_SEEDS = ['616','666', 'die', 'dead'];
+let errorSkinActive = false;
+function updateErrorSkin(seed){ errorSkinActive = ERROR_SKIN_SEEDS.includes(String(seed||'').trim().toLowerCase()); }
+
+// Stats "visuais" na escala 100 (base) → 200 (skin completa). Reaproveita os upgrades que já existem:
+//  · DANO  = 100 × getUpgradeValue('laserDmg')  → árvore (+20% por nó) × chips (rm.dmgMult). 200 = dano dobrado.
+//  · RESISTÊNCIA = vida efetiva = 100 × (maxHp/100) ÷ armor, onde armor = getUpgradeValue('armor')
+//    (1.0 sem nada; cai 10% por nó e ×0.88 por chip). Junta Vida+25 e Armadura numa só medida:
+//    200 = o robô aguenta o dobro de dano que a base (ex.: 2 nós de Armadura + 2 de Vida).
+// Overclock (buff temporário de dano) fica de fora de propósito: a skin não deve piscar a cada ativação.
+function getSkinStats(){
+  const dano = 100 * getUpgradeValue('laserDmg');
+  const resistencia = 100 * (robot.maxHp/100) / Math.max(0.1, getUpgradeValue('armor'));
+  return { dano, resistencia };
+}
 
 function resize(){
   W=canvas.clientWidth; H=canvas.clientHeight;
@@ -3571,6 +3557,40 @@ function drawEnemies(){
   }
 }
 
+// ─── Skin do player: base + camadas com crossfade ─────────────
+// Chamada dentro do ctx já transladado/rotacionado de drawRobot. Retorna false se o sprite
+// necessário ainda não carregou (aí drawRobot usa o fallback vetorial).
+function drawPlayerSkin(d){
+  // a) Easter egg: só a error skin, sem misturar com nenhuma outra
+  if(errorSkinActive){
+    if(!spriteReady(SPRITES.playerError)) return false;
+    ctx.shadowColor='#5ee9ff'; ctx.shadowBlur=Q(10);
+    ctx.drawImage(SPRITES.playerError,-d/2,-d/2,d,d);
+    ctx.shadowBlur=0;
+    return true;
+  }
+  if(!spriteReady(SPRITES.player)) return false;
+
+  // b) Base (alpha 1) — só ela leva o brilho ciano; as camadas por cima usam shadowBlur=0
+  //    para o glow não somar várias vezes e estourar.
+  ctx.shadowColor='#5ee9ff'; ctx.shadowBlur=Q(10);
+  ctx.drawImage(SPRITES.player,-d/2,-d/2,d,d);
+  ctx.shadowBlur=0;
+
+  const {dano, resistencia} = getSkinStats();
+  const tDmg = smoothstat(dano, 100, 200);
+  const tRes = smoothstat(resistencia, 100, 200);
+  const layer=(img,alpha)=>{
+    if(!spriteReady(img)) return;
+    ctx.globalAlpha=alpha; ctx.drawImage(img,-d/2,-d/2,d,d);
+  };
+  if(tRes>0.01) layer(SPRITES.playerRes, tRes);   // casca preta
+  if(tDmg>0.01) layer(SPRITES.playerDmg, tDmg);   // LEDs vermelhos
+  if(tDmg>0.5 && tRes>0.5) layer(SPRITES.playerDmgRes, Math.min(tDmg,tRes)*0.85); // combo
+  ctx.globalAlpha=1;
+  return true;
+}
+
 // ─── Draw Robot ───────────────────────────────────────────────
 function drawRobot(){
   const rx=robot.x-cam.x+W/2,ry=robot.y-cam.y+H/2;
@@ -3613,11 +3633,8 @@ function drawRobot(){
   ctx.rotate(-time*.004);
 
   ctx.rotate(robot.angle);
-  if(spriteReady(SPRITES.player)){
-    ctx.shadowColor='#5ee9ff'; ctx.shadowBlur=Q(10);
-    const d=robot.radius*2.25; // sprite ligeiramente maior que o raio de colisão
-    ctx.drawImage(SPRITES.player,-d/2,-d/2,d,d);
-    ctx.shadowBlur=0;
+  if(drawPlayerSkin(robot.radius*2.25)){ // sprite ligeiramente maior que o raio de colisão
+    // skin desenhada (base + camadas, ou só a error skin)
   } else {
     // Fallback vetorial enquanto o sprite carrega
     const bg=ctx.createRadialGradient(-4,-5,2,0,0,robot.radius);
@@ -4045,6 +4062,7 @@ function loop(ts){
 function startGame(seed, mode){
   if(mode) gameMode=mode;
   seedStr=seed||'nebulosa';
+  updateErrorSkin(seedStr); // reseta/ativa o easter egg da skin de erro conforme a seed
   generateWorld(seedStr);
   currentDim=DIM.SURFACE;
   // Atualizar aliases para dimensão inicial
